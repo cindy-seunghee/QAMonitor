@@ -182,7 +182,7 @@ class SlackNotifier:
         mention_text = ", ".join(mentions) if mentions else ""
 
         # 메시지 조립
-        phase_text = f"`{test_phase}` " if test_phase else ""
+        phase_text = f"*`{test_phase}`* " if test_phase else ""
         qa_card = data.get("qa_card", {})
         card_url = qa_card.get("url", "")
         if not card_url:

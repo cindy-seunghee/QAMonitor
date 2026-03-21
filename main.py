@@ -126,6 +126,13 @@ def run(config: dict) -> str:
             try:
                 print(f"\n[3/4] {card_id}: {qa_card['title']}")
                 data = prepare_qa_card_data(qa_card, config)
+
+                # 테스트 기간 안에 있는 카드만 발송
+                test_phase = data.get("test_phase", "")
+                if test_phase not in ("통합테스트", "리그레션테스트"):
+                    print(f"      테스트 단계: {test_phase} — 발송 건너뜀")
+                    continue
+
                 last_dashboard_path = data["dashboard_path"]
                 # 뷰 URL 연결
                 card_view_urls = view_result.get("view_urls", {}).get(card_id, {})
@@ -238,6 +245,12 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
         try:
             print(f"  → {card_id}: {qa_card['title']}")
             data = prepare_qa_card_data(qa_card, config)
+
+            test_phase = data.get("test_phase", "")
+            if test_phase not in ("통합테스트", "리그레션테스트"):
+                print(f"    테스트 단계: {test_phase} — 발송 건너뜀")
+                continue
+
             notifier.send_assignee_message(
                 data=data,
                 channel=channel,
