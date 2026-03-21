@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────
+# QA Monitor 설정 파일
+# ─────────────────────────────────────────────
+
+project:
+  name: "My Service QA"           # 프로젝트 이름 (대시보드 상단에 표시)
+  release_date: "2026-04-15"      # 릴리즈 목표일 (D-Day 계산용)
+
+linear:
+  # 모니터링 대상 지정 (하나 이상 필수)
+  # project_id 또는 team_id+cycle_id 중 하나를 사용하세요.
+  team_id: ""                     # Linear Team ID (필수: Settings > Team > ID)
+  project_id: ""                  # Linear Project ID (프로젝트 기준 모니터링 시)
+  cycle_id: ""                    # Linear Cycle ID (스프린트 기준 모니터링 시)
+
+  # QA 테스트 케이스 카드 식별
+  qa_labels:                      # QA 카드를 구분하는 라벨 이름 목록
+    - "QA"
+    - "Test Case"
+  qa_done_states:                 # 테스트 완료로 간주할 상태 이름 목록
+    - "Done"
+    - "Passed"
+    - "Verified"
+  qa_skip_states:                 # 계획에서 제외할 상태 (취소/해당없음)
+    - "Cancelled"
+    - "N/A"
+
+  # 버그/이슈 카드 식별
+  bug_labels:                     # 버그를 구분하는 라벨 이름 목록
+    - "Bug"
+    - "Defect"
+  bug_open_states:                # 미해결로 간주할 버그 상태 목록
+    - "Triage"
+    - "Todo"
+    - "In Progress"
+    - "In Review"
+    - "Reopened"
+
+scheduler:
+  send_time: "15:00"              # 매일 발송 시각 (HH:MM, 24시간)
+  timezone: "Asia/Seoul"          # 타임존
+
+slack:
+  # 요약 메시지를 보낼 채널 (채널 ID 또는 #채널명)
+  summary_channel: ""             # 예: "C0XXXXXXXXX" (채널 우클릭 > 채널 ID 복사)
+
+  # Slack 메시지 구성 템플릿 파일
+  template_path: "slack_template.md"
+
+  # 담당자별 DM 전송 여부
+  send_dm_to_assignees: false     # true: 각 담당자에게 DM 발송
+                                  # false: 채널 메시지에 멘션으로 통합
+
+  # Slack 사용자 매핑 (Linear 이름 → Slack 설정)
+  # slack_id: 슬랙에서 프로필 클릭 > "멤버 ID 복사"로 확인
+  # send_time: 개인별 발송 시각 (생략 시 scheduler.send_time 사용)
+  user_map:
+    # "홍길동":
+    #   slack_id: "U0XXXXXXXXX"   # 슬랙 프로필 > 멤버 ID 복사
+    #   send_time: "15:00"
+    # "Jane Doe":
+    #   slack_id: "U0YYYYYYYYY"
+    #   send_time: "16:00"
+
+dashboard:
+  output_dir: "output"            # HTML 대시보드 저장 경로
+  keep_history: 30                # 과거 대시보드 보관 일수
+  checklist_path: "deployment_checklist.md"  # 배포 체크리스트 항목 파일
+  max_bugs_display: 50            # 미해결 버그 목록 최대 표시 개수
+  trend_days: 14                  # 이슈 추이 차트 기간 (일)
+
+exit_criteria:
+  # 배포 기준 체크리스트 (대시보드에 표시됨)
+  urgent_bug_max: 0               # Urgent 버그 허용 최대 개수
+  high_bug_max: 0                 # High 버그 허용 최대 개수
+  medium_bug_max: 5               # Medium 버그 허용 최대 개수
+  test_completion_min_pct: 100    # 테스트 완료율 최소 기준 (%)
+  test_pass_min_pct: 95           # 테스트 통과율 최소 기준 (%)

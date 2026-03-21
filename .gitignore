@@ -1,0 +1,29 @@
+# 환경변수 / 시크릿
+.env
+*.env
+.env.*
+
+# 실제 값이 담긴 설정 파일 (config.yaml.example 을 복사해서 사용)
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# 생성된 대시보드 (로컬 산출물)
+output/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp

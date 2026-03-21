@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Monitor — 시작 가이드</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif; background: #f5f6fa; color: #1a1a2e; line-height: 1.6; }
+
+  /* ── Header ── */
+  .hero {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+    color: white; padding: 56px 40px 48px; text-align: center;
+  }
+  .hero-badge {
+    display: inline-block; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 999px; padding: 4px 16px; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 20px;
+  }
+  .hero h1 { font-size: 32px; font-weight: 800; margin-bottom: 12px; }
+  .hero p { font-size: 16px; opacity: 0.8; max-width: 560px; margin: 0 auto; }
+
+  /* ── Layout ── */
+  .container { max-width: 1080px; margin: 0 auto; padding: 48px 24px; }
+  .section { margin-bottom: 56px; }
+  .section-title {
+    font-size: 13px; font-weight: 700; color: #6366f1; letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; }
+  .section-heading { font-size: 22px; font-weight: 700; color: #111827; margin-bottom: 6px; }
+  .section-sub { font-size: 14px; color: #6b7280; margin-bottom: 24px; }
+
+  /* ── Step Cards ── */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step {
+    display: grid; grid-template-columns: 64px 1fr; gap: 0;
+    position: relative;
+  }
+  .step:not(:last-child) .step-line { border-left: 2px dashed #c7d2fe; margin-left: 31px; height: 100%; position: absolute; top: 64px; bottom: 0; }
+  .step-left { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  .step-num {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, #4338ca, #7c3aed);
+    color: white; font-size: 18px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; position: relative; z-index: 1;
+    box-shadow: 0 4px 12px rgba(99,102,241,0.4);
+  }
+  .step-connector { flex: 1; width: 2px; background: #c7d2fe; margin: 8px 0; }
+  .step:last-child .step-connector { display: none; }
+  .step-body { padding: 0 0 32px 20px; }
+  .step-card {
+    background: white; border-radius: 14px; padding: 24px 28px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #f3f4f6;
+  }
+  .step-card h3 { font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 10px; }
+
+  /* ── Code blocks ── */
+  .code-block {
+    background: #1e1b4b; color: #e0e7ff; border-radius: 10px;
+    padding: 16px 20px; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px; line-height: 1.7; overflow-x: auto; margin: 12px 0;
+  }
+  .code-block .comment { color: #818cf8; }
+  .code-block .key { color: #a5b4fc; }
+  .code-block .val { color: #86efac; }
+  .code-block .cmd { color: #fde68a; }
+  .inline-code {
+    background: #f0f0ff; color: #4338ca; padding: 2px 8px;
+    border-radius: 5px; font-family: monospace; font-size: 13px; font-weight: 600;
+  }
+
+  /* ── Table ── */
+  .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .info-table th {
+    background: #f9fafb; padding: 10px 14px; text-align: left;
+    font-weight: 600; color: #6b7280; border-bottom: 1px solid #e5e7eb;
+  }
+  .info-table td { padding: 10px 14px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  .info-table tr:last-child td { border-bottom: none; }
+
+  /* ── Dashboard grid ── */
+  .dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } }
+  .db-card {
+    background: white; border-radius: 14px; padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #f3f4f6;
+    border-top: 4px solid;
+  }
+  .db-card.c1 { border-top-color: #6366f1; }
+  .db-card.c2 { border-top-color: #8b5cf6; }
+  .db-card.c3 { border-top-color: #ec4899; }
+  .db-card.c4 { border-top-color: #f59e0b; }
+  .db-card.c5 { border-top-color: #10b981; }
+  .db-card.c6 { border-top-color: #ef4444; }
+  .db-card.c7 { border-top-color: #3b82f6; }
+  .db-num { font-size: 11px; font-weight: 700; color: #9ca3af; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .db-title { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 8px; }
+  .db-items { font-size: 13px; color: #4b5563; line-height: 1.8; }
+  .db-items li { list-style: none; padding-left: 0; }
+  .db-items li::before { content: '· '; color: #9ca3af; }
+
+  /* ── Criteria ── */
+  .criteria-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 640px) { .criteria-grid { grid-template-columns: 1fr; } }
+  .criteria-box {
+    background: white; border-radius: 14px; padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .criteria-box h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .criteria-box .sub { font-size: 12px; color: #9ca3af; margin-bottom: 16px; }
+  .criteria-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px;
+  }
+  .criteria-row:last-child { border-bottom: none; }
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; white-space: nowrap; flex-shrink: 0;
+  }
+  .tag-red { background: #fee2e2; color: #dc2626; }
+  .tag-orange { background: #ffedd5; color: #ea580c; }
+  .tag-yellow { background: #fef9c3; color: #ca8a04; }
+  .tag-blue { background: #dbeafe; color: #2563eb; }
+  .tag-gray { background: #f3f4f6; color: #6b7280; }
+  .tag-green { background: #dcfce7; color: #16a34a; }
+  .tag-purple { background: #ede9fe; color: #5b21b6; }
+  .criteria-row .label { flex: 1; color: #374151; line-height: 1.5; }
+  .criteria-row .value { font-weight: 700; color: #111827; white-space: nowrap; }
+
+  /* ── File highlight ── */
+  .file-highlight {
+    background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 10px;
+    padding: 16px 20px; display: flex; align-items: flex-start; gap: 14px; margin: 12px 0;
+  }
+  .file-icon { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
+  .file-name { font-size: 14px; font-weight: 700; color: #92400e; font-family: monospace; margin-bottom: 4px; }
+  .file-desc { font-size: 13px; color: #6b7280; }
+
+  /* ── Commands ── */
+  .cmd-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  @media (max-width: 600px) { .cmd-grid { grid-template-columns: 1fr; } }
+  .cmd-card {
+    background: #1e1b4b; border-radius: 10px; padding: 16px 18px;
+    border: 1px solid #312e81;
+  }
+  .cmd-card .cmd-line { font-family: monospace; font-size: 13px; color: #fde68a; margin-bottom: 6px; }
+  .cmd-card .cmd-desc { font-size: 12px; color: #818cf8; }
+
+  /* ── Checklist ── */
+  .checklist { list-style: none; }
+  .checklist li {
+    padding: 9px 0; border-bottom: 1px solid #f3f4f6;
+    font-size: 13px; color: #374151; display: flex; align-items: center; gap: 10px;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist li::before { content: '☑'; font-size: 16px; color: #6366f1; flex-shrink: 0; }
+
+  /* ── Notice ── */
+  .notice {
+    background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px;
+    padding: 14px 18px; font-size: 13px; color: #1e40af; margin-top: 14px;
+    display: flex; gap: 10px;
+  }
+
+  /* ── Footer ── */
+  .footer { text-align: center; padding: 40px 24px; font-size: 12px; color: #9ca3af; }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-badge">QA Monitor — 시작 가이드</div>
+  <h1>Linear × Slack QA 자동화 설정</h1>
+  <p>이 가이드를 따라 설정하면 매일 지정된 시각에 QA 현황 리포트가 자동으로 발송됩니다.</p>
+</div>
+
+<div class="container">
+
+  <!-- ── STEP BY STEP ── -->
+  <div class="section">
+    <div class="section-title">Setup</div>
+    <div class="section-heading">설치 및 초기 설정</div>
+    <div class="section-sub">순서대로 진행하면 30분 안에 완료됩니다.</div>
+
+    <div class="steps">
+
+      <!-- Step 1 -->
+      <div class="step">
+        <div class="step-left">
+          <div class="step-num">1</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-card">
+            <h3>패키지 설치</h3>
+            <div class="code-block">
+<span class="comment"># 가상환경 생성 (권장)</span>
+<span class="cmd">python -m venv .venv</span>
+<span class="cmd">source .venv/bin/activate</span>   <span class="comment"># Windows: .venv\Scripts\activate</span>
+
+<span class="comment"># 의존성 설치</span>
+<span class="cmd">pip install -r requirements.txt</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step">
+        <div class="step-left">
+          <div class="step-num">2</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-card">
+            <h3>API 키 설정 (.env)</h3>
+            <div class="code-block">
+<span class="comment"># .env.example 복사 후 편집</span>
+<span class="cmd">cp .env.example .env</span>
+            </div>
+            <table class="info-table" style="margin-top:12px">
+              <thead>
+                <tr><th>변수</th><th>설명</th><th>획득 방법</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="inline-code">LINEAR_API_KEY</span></td>
+                  <td>Linear Personal API Key</td>
+                  <td>Linear → Settings → API → Personal API keys</td>
+                </tr>
+                <tr>
+                  <td><span class="inline-code">SLACK_BOT_TOKEN</span></td>
+                  <td>Slack Bot OAuth Token</td>
+                  <td>api.slack.com/apps → OAuth &amp; Permissions → Bot Token</td>
+                </tr>
+                <tr>
+                  <td><span class="inline-code">SLACK_CHANNEL_ID</span></td>
+                  <td>발송할 채널 ID</td>
+                  <td>채널 우클릭 → "채널 ID 복사"</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step">
+        <div class="step-left">
+          <div class="step-num">3</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-card">
+            <h3>Slack 앱 권한 설정</h3>
+            <p style="font-size:13px;color:#6b7280;margin-bottom:12px">api.slack.com/apps 에서 새 앱을 만들고 아래 Bot Token Scopes를 추가하세요.</p>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+              <span class="tag tag-purple">chat:write</span>
+              <span class="tag tag-purple">im:write</span>
+              <span class="tag tag-purple">users:read</span>
+              <span class="tag tag-purple">users:read.email</span>
+            </div>
+            <div class="notice">
+              💡 앱 설치 후 채널에 초대해야 메시지를 보낼 수 있습니다 →
+              <strong>/invite @앱이름</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step">
+        <div class="step-left">
+          <div class="step-num">4</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-card">
+            <h3>config.yaml 설정 <span style="font-size:12px;font-weight:400;color:#9ca3af">— 핵심 설정 파일</span></h3>
+            <div class="file-highlight">
+              <div class="file-icon">⚙️</div>
+              <div>
+                <div class="file-name">config.yaml</div>
+                <div class="file-desc">이 파일 하나에서 프로젝트명, Linear 연동, Slack 채널, 스케줄, 배포 기준을 모두 설정합니다.</div>
+              </div>
+            </div>
+            <div class="code-block">
+<span class="key">project</span>:
+  <span class="key">name</span>: <span class="val">"My Service QA"</span>        <span class="comment"># 대시보드 제목</span>
+  <span class="key">release_date</span>: <span class="val">"2026-04-15"</span>   <span class="comment"># D-Day 계산용 릴리즈 목표일</span>
+
+<span class="key">linear</span>:
+  <span class="key">team_id</span>: <span class="val">"abc123"</span>            <span class="comment"># Linear Team ID (필수)</span>
+  <span class="key">project_id</span>: <span class="val">""</span>              <span class="comment"># 프로젝트 단위 모니터링 시</span>
+  <span class="key">cycle_id</span>: <span class="val">""</span>               <span class="comment"># 스프린트 단위 모니터링 시</span>
+
+  <span class="key">qa_labels</span>: [<span class="val">"QA"</span>, <span class="val">"Test Case"</span>]   <span class="comment"># Linear QA 카드 라벨명</span>
+  <span class="key">bug_labels</span>: [<span class="val">"Bug"</span>, <span class="val">"Defect"</span>]    <span class="comment"># Linear 버그 라벨명</span>
+
+<span class="key">slack</span>:
+  <span class="key">summary_channel</span>: <span class="val">"C0XXXXXXXXX"</span>
+  <span class="key">send_dm_to_assignees</span>: <span class="val">true</span>    <span class="comment"># 담당자별 DM 발송 여부</span>
+  <span class="key">user_map</span>:                       <span class="comment"># Linear 이름 → Slack User ID</span>
+    <span class="val">"홍길동"</span>: <span class="val">"U0XXXXXXXXX"</span>
+    <span class="val">"Jane Doe"</span>: <span class="val">"U0YYYYYYYYY"</span>
+
+<span class="key">scheduler</span>:
+  <span class="key">send_time</span>: <span class="val">"09:00"</span>             <span class="comment"># 매일 발송 시각 (HH:MM)</span>
+  <span class="key">timezone</span>: <span class="val">"Asia/Seoul"</span>
+
+<span class="key">dashboard</span>:
+  <span class="key">output_dir</span>: <span class="val">"output"</span>
+  <span class="key">checklist_path</span>: <span class="val">"deployment_checklist.md"</span>  <span class="comment"># ← 배포 체크리스트 항목 파일</span>
+  <span class="key">max_bugs_display</span>: <span class="val">50</span>           <span class="comment"># 대시보드 버그 목록 최대 표시 수</span>
+  <span class="key">trend_days</span>: <span class="val">14</span>                 <span class="comment"># 이슈 추이 차트 기간 (일)</span>
+
+<span class="key">exit_criteria</span>:                    <span class="comment"># ← 수치 기준 여기에 입력 (자동 Pass/Fail)</span>
+  <span class="key">urgent_bug_max</span>: <span class="val">0</span>
+  <span class="key">high_bug_max</span>: <span class="val">0</span>
+  <span class="key">medium_bug_max</span>: <span class="val">5</span>
+  <span class="key">test_completion_min_pct</span>: <span class="val">100</span>
+  <span class="key">test_pass_min_pct</span>: <span class="val">95</span>
+            </div>
+            <div class="notice">
+              🔍 <strong>Linear ID 확인:</strong> team_id / project_id / cycle_id는 해당 페이지 URL 끝부분에서 확인할 수 있습니다.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="step">
+        <div class="step-left">
+          <div class="step-num">5</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-card">
+            <h3>연결 테스트 &amp; 실행</h3>
+            <div class="cmd-grid">
+              <div class="cmd-card">
+                <div class="cmd-line">python main.py --test-linear</div>
+                <div class="cmd-desc">Linear API 연결 확인</div>
+              </div>
+              <div class="cmd-card">
+                <div class="cmd-line">python main.py --test-slack</div>
+                <div class="cmd-desc">Slack Bot 연결 확인</div>
+              </div>
+              <div class="cmd-card">
+                <div class="cmd-line">python main.py --run-now</div>
+                <div class="cmd-desc">즉시 실행 (분석 + 대시보드 + Slack)</div>
+              </div>
+              <div class="cmd-card">
+                <div class="cmd-line">python main.py --dashboard-only</div>
+                <div class="cmd-desc">HTML 대시보드만 생성 (Slack 미전송)</div>
+              </div>
+              <div class="cmd-card" style="grid-column: 1 / -1;">
+                <div class="cmd-line">python main.py --schedule</div>
+                <div class="cmd-desc">스케줄러 시작 — config.yaml의 send_time마다 자동 실행</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+  </div>
+
+  <!-- ── DASHBOARD SECTIONS ── -->
+  <div class="section">
+    <div class="section-title">Dashboard</div>
+    <div class="section-heading">HTML 대시보드 구성 항목</div>
+    <div class="section-sub"><span class="inline-code">output/qa_dashboard_latest.html</span> 에 자동 저장됩니다.</div>
+
+    <div class="dashboard-grid">
+      <div class="db-card c1">
+        <div class="db-num">SECTION 01</div>
+        <div class="db-title">핵심 지표 카드</div>
+        <ul class="db-items">
+          <li>테스트 진행률 (%)</li>
+          <li>미해결 버그 총 개수</li>
+          <li>오늘 신규 이슈 수</li>
+          <li>테스트 미완료 케이스</li>
+          <li>릴리즈 D-Day</li>
+        </ul>
+      </div>
+      <div class="db-card c2">
+        <div class="db-num">SECTION 02</div>
+        <div class="db-title">테스트 진행 현황</div>
+        <ul class="db-items">
+          <li>전체 진행률 바</li>
+          <li>완료 / 진행중 / 미시작 분류</li>
+          <li>목표 대비 현재 위치</li>
+        </ul>
+      </div>
+      <div class="db-card c3">
+        <div class="db-num">SECTION 03</div>
+        <div class="db-title">이슈 현황 차트</div>
+        <ul class="db-items">
+          <li>우선순위별 도넛 차트</li>
+          <li>상태별 바 차트</li>
+          <li>Urgent / High / Medium / Low</li>
+        </ul>
+      </div>
+      <div class="db-card c4">
+        <div class="db-num">SECTION 04</div>
+        <div class="db-title">이슈 추이 (트렌드)</div>
+        <ul class="db-items">
+          <li>최근 14일 라인 차트</li>
+          <li>신규 등록 vs 해결 비교</li>
+          <li>번다운 패턴 확인</li>
+        </ul>
+      </div>
+      <div class="db-card c5">
+        <div class="db-num">SECTION 05</div>
+        <div class="db-title">담당자별 현황</div>
+        <ul class="db-items">
+          <li>QA 케이스 배정 / 완료 / 잔여</li>
+          <li>개인별 진행률 바</li>
+          <li>담당 미해결 버그 수</li>
+        </ul>
+      </div>
+      <div class="db-card c6">
+        <div class="db-num">SECTION 06</div>
+        <div class="db-title">미해결 버그 목록</div>
+        <ul class="db-items">
+          <li>우선순위 순 정렬</li>
+          <li>Linear 이슈 직접 링크</li>
+          <li>상태 / 담당자 / 등록일</li>
+        </ul>
+      </div>
+      <div class="db-card c7" style="grid-column: 1 / -1;">
+        <div class="db-num">SECTION 07</div>
+        <div class="db-title">배포 기준 체크리스트 &amp; 배포 가능 여부</div>
+        <ul class="db-items" style="display:flex;gap:24px;flex-wrap:wrap">
+          <li>config.yaml 기준값 자동 계산</li>
+          <li>Pass / Fail 실시간 표시</li>
+          <li>배포 가능 / 배포 불가 최종 판단</li>
+          <li>팀 합의 체크리스트 (수동)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── EXIT CRITERIA ── -->
+  <div class="section">
+    <div class="section-title">Exit Criteria</div>
+    <div class="section-heading">QA 종료 기준 &amp; 배포 기준</div>
+    <div class="section-sub">
+      수치 기준은 <span class="inline-code">config.yaml → exit_criteria</span> 에 입력 /
+      배포 체크리스트 항목은 <span class="inline-code">src/dashboard_generator.py:313</span> 에서 직접 수정
+    </div>
+
+    <div class="criteria-grid">
+
+      <!-- QA 종료 기준 -->
+      <div class="criteria-box">
+        <h4>QA 종료 기준 (Exit Criteria)</h4>
+        <div class="sub">아래 항목을 모두 충족해야 QA가 종료됩니다.</div>
+
+        <div class="criteria-row">
+          <span class="tag tag-red">필수</span>
+          <span class="label">Urgent(P0) 버그</span>
+          <span class="value">0건</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-red">필수</span>
+          <span class="label">High(P1) 버그</span>
+          <span class="value">0건</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-red">필수</span>
+          <span class="label">테스트 케이스 실행률</span>
+          <span class="value">100%</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-red">필수</span>
+          <span class="label">핵심 기능 회귀 테스트</span>
+          <span class="value">100% 통과</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-orange">권장</span>
+          <span class="label">Medium(P2) 버그</span>
+          <span class="value">5건 이하*</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-orange">권장</span>
+          <span class="label">테스트 통과율</span>
+          <span class="value">95% 이상</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-orange">권장</span>
+          <span class="label">재오픈 이슈</span>
+          <span class="value">0건</span>
+        </div>
+        <div class="criteria-row">
+          <span class="tag tag-gray">선택</span>
+          <span class="label">Low(P3) 버그</span>
+          <span class="value">다음 릴리즈 이관</span>
+        </div>
+        <div class="notice" style="margin-top:14px">
+          * Medium 이상 Known Issue 예외 처리 시: QA 리더 + PM 공동 승인 필수
+        </div>
+      </div>
+
+      <!-- 배포 기준 -->
+      <div class="criteria-box">
+        <h4>배포 기준 (Deployment Criteria)</h4>
+        <div class="sub">QA 종료 후 배포 전 최종 확인 항목입니다.</div>
+
+        <ul class="checklist">
+          <li>QA 종료 기준 전 항목 충족 확인</li>
+          <li>스테이징 환경 최종 스모크 테스트 통과</li>
+          <li>성능 테스트 — 응답시간 목표값 이내 <span style="color:#9ca3af;font-size:12px">(예: p95 &lt; 500ms)</span></li>
+          <li>보안 취약점 스캔 이상 없음</li>
+          <li>데이터 마이그레이션 검증 완료 <span style="color:#9ca3af;font-size:12px">(해당 시)</span></li>
+          <li>롤백 플랜 문서화 및 담당자 숙지</li>
+          <li>모니터링 / 알림 설정 확인</li>
+          <li>QA 리더 최종 Sign-off</li>
+          <li>PM 배포 승인</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── SLACK FORMAT ── -->
+  <div class="section">
+    <div class="section-title">Slack</div>
+    <div class="section-heading">매일 발송되는 Slack 메시지 구성</div>
+    <div class="section-sub">채널 요약 메시지 1건 + 미해결 이슈가 있는 담당자에게 DM 발송</div>
+
+    <div style="background:white;border-radius:14px;padding:28px;box-shadow:0 2px 8px rgba(0,0,0,0.06);max-width:560px">
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:16px">📣 #qa-monitoring 채널 메시지 예시</div>
+
+      <div style="background:#f8f8f8;border-radius:8px;padding:18px;border-left:4px solid #4338ca">
+        <div style="font-size:15px;font-weight:700;margin-bottom:14px">🗂 My Service QA 일일 리포트  |  D-25</div>
+
+        <div style="font-size:13px;margin-bottom:12px">
+          <strong>테스트 진행률</strong><br>
+          <span style="font-family:monospace;letter-spacing:1px;color:#4338ca">████████░░</span>  <code>78%</code><br>
+          <span style="color:#6b7280">39 / 50 완료</span>
+        </div>
+        <div style="font-size:13px;margin-bottom:16px">
+          <strong>미해결 버그</strong><br>
+          🔴  <strong>7건</strong>  |  오늘 신규: 2건
+        </div>
+
+        <div style="font-size:13px;margin-bottom:16px">
+          <strong>미해결 버그 우선순위</strong><br>
+          🔴 Urgent: <strong>1</strong>  🟠 High: <strong>2</strong>  🟡 Medium: <strong>4</strong>
+        </div>
+
+        <div style="font-size:13px;border-top:1px solid #e5e7eb;padding-top:14px">
+          <strong>담당자별 미해결 버그</strong><br><br>
+          <strong>@홍길동</strong>  |  미해결 버그 <strong>3건</strong>  |  테스트 진행 12/20 (60%)<br>
+          🔴 <a style="color:#4338ca">QA-123</a> 로그인 실패 시 에러 메시지 미표시  <em>In Progress</em><br>
+          🟠 <a style="color:#4338ca">QA-118</a> 소셜 로그인 Redirect 오류  <em>Triage</em><br><br>
+          <strong>@Jane Doe</strong>  |  미해결 버그 <strong>4건</strong>  |  테스트 진행 18/20 (90%)<br>
+          🟡 <a style="color:#4338ca">QA-115</a> 목록 무한스크롤 마지막 항목 중복  <em>In Review</em>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;font-size:11px;color:#9ca3af">
+        📩 각 담당자에게 자신의 이슈만 포함된 DM이 별도 발송됩니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── FAQ ── -->
+  <div class="section">
+    <div class="section-title">FAQ</div>
+    <div class="section-heading">자주 발생하는 문제</div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;max-width:720px">
+
+      <div style="background:white;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
+        <div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">Linear API 오류 (401 Unauthorized)</div>
+        <div style="font-size:13px;color:#4b5563"><span class="inline-code">LINEAR_API_KEY</span>가 올바른지 확인하세요. <code>lin_api_</code>로 시작해야 합니다.</div>
+      </div>
+
+      <div style="background:white;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
+        <div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">Slack <code>not_in_channel</code> 오류</div>
+        <div style="font-size:13px;color:#4b5563">Slack 앱을 채널에 초대하세요: <span class="inline-code">/invite @앱이름</span></div>
+      </div>
+
+      <div style="background:white;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
+        <div style="font-size:13px;font-weight:700;color:#ea580c;margin-bottom:6px">담당자 DM이 안 보내짐</div>
+        <div style="font-size:13px;color:#4b5563"><span class="inline-code">config.yaml</span>의 <span class="inline-code">slack.user_map</span>에 Linear 이름 → Slack User ID 매핑을 추가하세요. Slack에서 프로필 클릭 → "멤버 ID 복사"로 확인 가능합니다.</div>
+      </div>
+
+      <div style="background:white;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
+        <div style="font-size:13px;font-weight:700;color:#ea580c;margin-bottom:6px">이슈가 0개로 조회됨</div>
+        <div style="font-size:13px;color:#4b5563"><span class="inline-code">config.yaml</span>의 <span class="inline-code">qa_labels</span>, <span class="inline-code">bug_labels</span>가 Linear 실제 라벨명과 대소문자까지 정확히 일치하는지 확인하세요.</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  QA Monitor &nbsp;·&nbsp; Linear × Slack QA 자동화 &nbsp;·&nbsp; config.yaml 하나로 모든 설정 관리
+</div>
+
+</body>
+</html>
