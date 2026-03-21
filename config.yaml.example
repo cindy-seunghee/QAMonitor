@@ -58,9 +58,11 @@ slack:
     # "홍길동":
     #   slack_id: "U0XXXXXXXXX"   # 슬랙 프로필 > 멤버 ID 복사
     #   send_time: "15:00"
+    #   linear_name: "gildong.hong"  # Linear 생성자 이름 (QA카드 매칭용)
     # "Jane Doe":
     #   slack_id: "U0YYYYYYYYY"
     #   send_time: "16:00"
+    #   linear_name: "jane.doe"
 
 dashboard:
   output_dir: "output"            # HTML 대시보드 저장 경로

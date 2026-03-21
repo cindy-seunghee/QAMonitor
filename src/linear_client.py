@@ -217,6 +217,63 @@ class LinearClient:
         data = self._query(query, {"teamId": team_id})
         return data["team"]["cycles"]["nodes"]
 
+    # ── QA 카드 디스커버리 ─────────────────────────────────────────────────
+
+    def get_qa_cards(self, qa_labels: list[str]) -> list[dict]:
+        """QA 라벨이 붙은 이슈(QA 카드) 목록 조회 — 생성자·상태 포함"""
+        labels_filter = ", ".join(f'"{l}"' for l in qa_labels)
+        query = f"""
+        query($after: String) {{
+            issues(
+                first: 250
+                after: $after
+                filter: {{ labels: {{ name: {{ in: [{labels_filter}] }} }} }}
+            ) {{
+                pageInfo {{ hasNextPage endCursor }}
+                nodes {{
+                    id
+                    identifier
+                    title
+                    state {{ name type }}
+                    creator {{ id name displayName }}
+                }}
+            }}
+        }}
+        """
+        issues: list[dict] = []
+        cursor = None
+        while True:
+            data = self._query(query, {"after": cursor})
+            conn = data["issues"]
+            issues.extend(conn["nodes"])
+            if not conn["pageInfo"]["hasNextPage"]:
+                break
+            cursor = conn["pageInfo"]["endCursor"]
+        return issues
+
+    def get_child_issues(self, parent_id: str) -> list[dict]:
+        """부모 이슈(UUID)의 하위 이슈를 ISSUE_FIELDS 형태로 조회"""
+        query = f"""
+        query($parentId: String!, $after: String) {{
+            issue(id: $parentId) {{
+                children(first: 250, after: $after) {{
+                    pageInfo {{ hasNextPage endCursor }}
+                    nodes {{ {self.ISSUE_FIELDS} }}
+                }}
+            }}
+        }}
+        """
+        issues: list[dict] = []
+        cursor = None
+        while True:
+            data = self._query(query, {"after": cursor})
+            conn = data["issue"]["children"]
+            issues.extend(conn["nodes"])
+            if not conn["pageInfo"]["hasNextPage"]:
+                break
+            cursor = conn["pageInfo"]["endCursor"]
+        return issues
+
     def get_viewer(self) -> dict:
         query = """
         query {

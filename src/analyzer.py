@@ -1,5 +1,7 @@
 """QA 데이터 분석 모듈"""
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
