@@ -213,17 +213,17 @@ class SlackNotifier:
         my_url = view_urls.get("my", "")
 
         if total_url:
-            lines += f"\n\u2022 *잔여 이슈* : <{total_url}|*{open_bug_count}건*>"
+            lines += f"\n> \u2022 *잔여 이슈* : <{total_url}|*{open_bug_count}건*>"
         else:
-            lines += f"\n\u2022 *잔여 이슈* : *{open_bug_count}건*"
+            lines += f"\n> \u2022 *잔여 이슈* : *{open_bug_count}건*"
         if priority_lines:
-            lines += priority_lines
+            lines += priority_lines.replace("\n    ", "\n>     ")
         if mention_text:
             lines += "\n"
             lines += f"\n{mention_text}"
-            lines += "\n    미수정 결함을 확인해주세요 :mulgae_sad:"
+            lines += "\n>  미수정 결함을 확인해주세요 :mulgae_sad:"
         if my_url:
-            lines += f"\n\u2022 <{my_url}|내 이슈 보러가기>"
+            lines += f"\n> \u2022 <{my_url}|내 이슈 보러가기>"
 
         blocks = [
             {
