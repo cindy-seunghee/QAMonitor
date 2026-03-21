@@ -101,7 +101,7 @@ def analyze(issues: list[dict], config: dict) -> dict:
 
     return {
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(),
-        "project_name": config.get("project", {}).get("name", "QA Project"),
+        "project_name": "QA Project",  # qa_discoverer에서 QA카드 title로 덮어씀
         "release_date": release_date_str,
         "dday": dday,
         "progress": progress,

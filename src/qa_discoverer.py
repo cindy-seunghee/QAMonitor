@@ -159,6 +159,67 @@ def fetch_test_progress(qa_card: dict, cell: str = "K14") -> float | None:
     return None
 
 
+# ── QA카드 Description 파싱 ──────────────────────────────────────────────
+
+# 월 이름 → 숫자 매핑
+_MONTH_MAP = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def _parse_date_flexible(text: str, default_year: int = None) -> str | None:
+    """
+    다양한 날짜 형식을 YYYY-MM-DD로 변환.
+    지원: '2026-04-10', '4/10', '3/9', 'Mar 27th', 'Apr 1st'
+    """
+    from datetime import datetime
+    text = text.strip().rstrip("?")
+
+    # YYYY-MM-DD
+    m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+    # M/D (예: 3/9, 4/10)
+    m = re.match(r"^(\d{1,2})/(\d{1,2})$", text)
+    if m:
+        year = default_year or datetime.now().year
+        return f"{year}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+
+    # Mar 27th, Apr 1st 등
+    m = re.match(r"([A-Za-z]+)\s+(\d{1,2})", text)
+    if m:
+        month_str = m.group(1).lower()[:3]
+        day = int(m.group(2))
+        month = _MONTH_MAP.get(month_str)
+        if month:
+            year = default_year or datetime.now().year
+            return f"{year}-{month:02d}-{day:02d}"
+
+    return None
+
+
+def parse_release_date(qa_card: dict) -> str | None:
+    """QA카드 Description에서 '릴리즈' 날짜를 추출한다. YYYY-MM-DD 반환."""
+    description = qa_card.get("description") or ""
+    for line in description.splitlines():
+        stripped = line.strip().lstrip("*").strip()
+        # '릴리즈 : ...' 또는 '릴리즈: ...' 패턴
+        if re.match(r"릴리즈\s*:", stripped):
+            date_part = stripped.split(":", 1)[1].strip()
+            parsed = _parse_date_flexible(date_part)
+            if parsed:
+                return parsed
+        # '배포 : ...' 패턴도 지원
+        if re.match(r"(sdk\s*)?배포\s*:", stripped, re.IGNORECASE):
+            date_part = stripped.split(":", 1)[1].strip()
+            parsed = _parse_date_flexible(date_part)
+            if parsed:
+                return parsed
+    return None
+
+
 VIEW_TARGET_STATES = ["Backlog", "Todo", "In Progress", "In Review"]
 
 
@@ -221,6 +282,12 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
 
     client = LinearClient()
     issues = client.get_child_issues(qa_card["id"])
+
+    # Description에서 릴리즈 날짜 추출
+    release_date = parse_release_date(qa_card)
+    if release_date:
+        config = {**config, "project": {**config.get("project", {}), "release_date": release_date}}
+        print(f"      릴리즈 날짜 (Description): {release_date}")
 
     data = analyze(issues, config)
     data["project_name"] = qa_card["title"]

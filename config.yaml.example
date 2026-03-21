@@ -3,8 +3,10 @@
 # ─────────────────────────────────────────────
 
 project:
-  name: "My Service QA"           # 프로젝트 이름 (대시보드 상단에 표시)
-  release_date: "2026-04-15"      # 릴리즈 목표일 (D-Day 계산용)
+  # [프로젝트명] QA카드 title에서 자동 추출 → 별도 설정 불필요
+  # [릴리즈 날짜] QA카드 Description에 "릴리즈 : YYYY-MM-DD" 형식이 있으면 자동 추출
+  #               Description에 없을 때만 아래 fallback 값 사용
+  release_date: "2026-04-15"
 
 linear:
   # 모니터링 대상 지정 (하나 이상 필수)
