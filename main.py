@@ -117,6 +117,9 @@ def run(config: dict) -> str:
                 print(f"\n[3/4] {card_id}: {qa_card['title']}")
                 data = prepare_qa_card_data(qa_card, config)
                 last_dashboard_path = data["dashboard_path"]
+                # 뷰 URL 연결
+                card_view_urls = view_result.get("view_urls", {}).get(card_id, {})
+                data["view_urls"] = card_view_urls
                 print(f"      하위이슈 {len(data['all_issues'])}건 | 대시보드: {data['dashboard_path']}")
             except Exception as e:
                 msg = f"{card_id} 데이터 준비 실패: {e}"

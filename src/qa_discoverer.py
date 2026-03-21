@@ -405,6 +405,7 @@ def sync_views(cards_by_manager: dict[str, list[dict]]) -> dict:
     created = []
     deleted = []
     failed = []
+    view_urls: dict[str, dict] = {}  # {identifier: {"total": url, "my": url}}
 
     for card in unique_cards:
         state = card["state"]["name"]
@@ -415,6 +416,14 @@ def sync_views(cards_by_manager: dict[str, list[dict]]) -> dict:
                 result = create_views_for_card(identifier)
                 for name in result["created"]:
                     created.append(f"{name} [{identifier}]")
+                # 뷰 URL 저장
+                urls = {}
+                for v in result["views"]:
+                    if v["name"] == "전체":
+                        urls["total"] = v["url"]
+                    elif v["name"] == "내 이슈":
+                        urls["my"] = v["url"]
+                view_urls[identifier] = urls
             except Exception as e:
                 failed.append({"card": identifier, "action": "생성", "reason": str(e)})
 
@@ -428,7 +437,7 @@ def sync_views(cards_by_manager: dict[str, list[dict]]) -> dict:
             except Exception as e:
                 failed.append({"card": identifier, "action": "삭제", "reason": str(e)})
 
-    return {"created": created, "deleted": deleted, "failed": failed}
+    return {"created": created, "deleted": deleted, "failed": failed, "view_urls": view_urls}
 
 
 def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:

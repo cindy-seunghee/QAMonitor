@@ -102,26 +102,6 @@ class SlackNotifier:
         if dashboard_path:
             self._upload_file(channel, thread_ts, dashboard_path)
 
-        # 3) 스레드 댓글 전송 (단계별 필터링)
-        for thread_cfg in threads:
-            t_title = thread_cfg.get("title", "")
-            t_sections = thread_cfg.get("sections", [])
-            if not t_sections:
-                continue
-
-            if "[통합테스트]" in t_title and test_phase != "통합테스트":
-                continue
-            if "[리그레션테스트]" in t_title and test_phase != "리그레션테스트":
-                continue
-
-            thread_blocks = self._build_section_blocks(
-                sections=t_sections,
-                data=data,
-                user_map=user_map,
-                title=t_title,
-            )
-            self._post_thread(channel, thread_ts, thread_blocks, text=t_title)
-
     # ── 메인 메시지 빌더 (새 양식) ──────────────────────────────────────────
 
     def _build_main_message(
@@ -137,6 +117,7 @@ class SlackNotifier:
         open_bug_count = data.get("open_bug_count", 0)
         open_bugs = data.get("open_bugs", [])
         by_assignee = data.get("by_assignee", {})
+        view_urls = data.get("view_urls", {})
 
         # 아이콘
         icon = progress_status.get("icon", ":mulgae_love:")
@@ -161,9 +142,9 @@ class SlackNotifier:
         # 우선순위 라인 (없는 경우 생략)
         priority_lines = ""
         if urgent_count > 0:
-            priority_lines += f"\n    \u25E6 *Urgent : `{urgent_count}`건*"
+            priority_lines += f"\n    \u25E6 Urgent *:* {urgent_count}건"
         if high_count > 0:
-            priority_lines += f"\n    \u25E6 *High : `{high_count}`건*"
+            priority_lines += f"\n    \u25E6 High *:* {high_count}건"
         if medium_count > 0:
             priority_lines += f"\n    \u25E6 Medium : {medium_count}건"
         if low_count > 0:
@@ -173,11 +154,26 @@ class SlackNotifier:
         dash_text = f"`{dashboard_path}`" if dashboard_path else "생성 안 됨"
 
         # 잔여 이슈가 있는 개발자만 멘션
+        # user_map 키(Liana) → linear_name(liana.kim) 역매핑 생성
+        linear_name_to_slack: dict[str, str] = {}
+        for uname, ucfg in user_map.items():
+            if isinstance(ucfg, dict):
+                ln = ucfg.get("linear_name", "").lower()
+                sid = ucfg.get("slack_id", "")
+                if ln and sid:
+                    linear_name_to_slack[ln] = sid
+                if sid:
+                    linear_name_to_slack[uname.lower()] = sid
+
         mentions = []
         for name, info in by_assignee.items():
             if len(info.get("open_bugs", [])) > 0:
+                # 1) user_map 키로 직접 매칭
                 uid_or_cfg = user_map.get(name, {})
                 slack_id = uid_or_cfg.get("slack_id") if isinstance(uid_or_cfg, dict) else uid_or_cfg
+                # 2) linear_name 역매핑으로 매칭
+                if not slack_id:
+                    slack_id = linear_name_to_slack.get(name.lower(), "")
                 if slack_id:
                     mentions.append(f"<@{slack_id}>")
                 else:
@@ -188,13 +184,23 @@ class SlackNotifier:
         # 메시지 조립
         phase_text = f"`{test_phase}` " if test_phase else ""
         lines = f"*{project_name}* {phase_text}*진행 상황 ({today})*"
+        lines += f"\n"
         lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`%*"
-        lines += f"\n\u2022 *잔여 이슈* : *`{open_bug_count}`건*"
+        total_url = view_urls.get("total", "")
+        my_url = view_urls.get("my", "")
+
+        if total_url:
+            lines += f"\n\u2022 *잔여 이슈* : <{total_url}|*{open_bug_count}건*>"
+        else:
+            lines += f"\n\u2022 *잔여 이슈* : *{open_bug_count}건*"
         if priority_lines:
             lines += priority_lines
         if mention_text:
+            lines += "\n"
             lines += f"\n{mention_text}"
-            lines += "\n미수정 결함을 확인해주세요 :mulgae_sad:"
+            lines += "\n    미수정 결함을 확인해주세요 :mulgae_sad:"
+        if my_url:
+            lines += f"\n\u2022 <{my_url}|내 이슈 보러가기>"
 
         blocks = [
             {
@@ -435,6 +441,7 @@ class SlackNotifier:
                 blocks=blocks,
                 text=text,
                 unfurl_links=False,
+                unfurl_media=False,
             )
             ts = resp["ts"]
             print(f"  ✓ 채널 메시지 전송 완료: {channel} (ts={ts})")
@@ -453,6 +460,7 @@ class SlackNotifier:
                 blocks=blocks,
                 text=text,
                 unfurl_links=False,
+                unfurl_media=False,
             )
             print(f"  ✓ 스레드 댓글 전송 완료: {text or '(제목 없음)'}")
         except SlackApiError as e:
@@ -588,6 +596,7 @@ class SlackNotifier:
                 blocks=blocks,
                 text=f"QA 권고사항: {qa_card_title}",
                 unfurl_links=False,
+                unfurl_media=False,
             )
             print(f"  ✓ 권고사항 DM 전송 완료: {slack_id}")
         except SlackApiError as e:
@@ -623,6 +632,7 @@ class SlackNotifier:
                 blocks=blocks,
                 text=f"QA Monitor 오류 {len(errors)}건 발생",
                 unfurl_links=False,
+                unfurl_media=False,
             )
             print(f"  ✓ 에러 DM 전송 완료: {slack_id}")
         except SlackApiError as e:

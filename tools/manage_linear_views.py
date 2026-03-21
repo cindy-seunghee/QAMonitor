@@ -118,26 +118,13 @@ def create_view(name: str, team_id: str, filter_data: dict) -> dict:
 
 def create_views_for_card(identifier: str) -> dict:
     """
-    QA카드의 담당자별 뷰를 생성한다 (이미 있으면 스킵).
+    QA카드의 전체 잔여이슈 뷰 + 내 잔여이슈(Current User) 뷰를 생성한다.
+    이미 있으면 스킵.
     Returns: {"created": [...], "skipped": [...], "views": [{"name", "url"}, ...]}
     """
     issue = get_issue_info(identifier)
     parent_uuid = issue["id"]
     team_id = issue["team"]["id"]
-
-    # 담당자 수집 + No assignee 감지
-    assignees: dict[str, dict] = {}
-    has_no_assignee = False
-    for child in issue["children"]["nodes"]:
-        a = child.get("assignee")
-        if a:
-            if a["id"] not in assignees:
-                assignees[a["id"]] = a
-        else:
-            has_no_assignee = True
-
-    if not assignees and not has_no_assignee:
-        return {"created": [], "skipped": [], "views": []}
 
     valid_states = get_valid_states(team_id)
     existing = get_existing_views(identifier)
@@ -162,44 +149,22 @@ def create_views_for_card(identifier: str) -> dict:
         views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
         created.append("전체")
 
-    # 담당자별 뷰
-    for uid, assignee in assignees.items():
-        display_name = assignee.get("displayName") or assignee["name"]
-        view_name = f"{display_name} 잔여이슈 [{identifier}]"
-
-        if view_name in existing:
-            slug = existing[view_name].get("slugId") or existing[view_name]["id"]
-            views.append({"name": display_name, "url": f"https://linear.app/buzzvil/view/{slug}"})
-            skipped.append(display_name)
-            continue
-
+    # 내 잔여이슈 뷰 (Current User)
+    my_view_name = f"내 잔여이슈 [{identifier}]"
+    if my_view_name in existing:
+        slug = existing[my_view_name].get("slugId") or existing[my_view_name]["id"]
+        views.append({"name": "내 이슈", "url": f"https://linear.app/buzzvil/view/{slug}"})
+        skipped.append("내 이슈")
+    else:
         filter_data = {
-            "assignee": {"id": {"eq": uid}},
+            "assignee": {"isMe": {"eq": True}},
             "parent": {"id": {"eq": parent_uuid}},
             "state": {"name": {"in": valid_states}},
         }
-        view = create_view(view_name, team_id, filter_data)
+        view = create_view(my_view_name, team_id, filter_data)
         slug = view.get("slugId") or view["id"]
-        views.append({"name": display_name, "url": f"https://linear.app/buzzvil/view/{slug}"})
-        created.append(display_name)
-
-    # No assignee 뷰
-    if has_no_assignee:
-        view_name = f"No assignee 잔여이슈 [{identifier}]"
-        if view_name in existing:
-            slug = existing[view_name].get("slugId") or existing[view_name]["id"]
-            views.append({"name": "No assignee", "url": f"https://linear.app/buzzvil/view/{slug}"})
-            skipped.append("No assignee")
-        else:
-            filter_data = {
-                "assignee": {"null": True},
-                "parent": {"id": {"eq": parent_uuid}},
-                "state": {"name": {"in": valid_states}},
-            }
-            view = create_view(view_name, team_id, filter_data)
-            slug = view.get("slugId") or view["id"]
-            views.append({"name": "No assignee", "url": f"https://linear.app/buzzvil/view/{slug}"})
-            created.append("No assignee")
+        views.append({"name": "내 이슈", "url": f"https://linear.app/buzzvil/view/{slug}"})
+        created.append("내 이슈")
 
     return {"created": created, "skipped": skipped, "views": views}
 
