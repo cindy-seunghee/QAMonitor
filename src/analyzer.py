@@ -290,8 +290,8 @@ def _check_exit_criteria(
         },
         {
             "label": f"테스트 완료율 {completion_min}% 이상",
-            "current": f"{progress['pct']}%",
-            "pass": progress["pct"] >= completion_min,
+            "current": f"{progress['pct']}%" if isinstance(progress["pct"], (int, float)) else "?",
+            "pass": progress["pct"] >= completion_min if isinstance(progress["pct"], (int, float)) else False,
         },
     ]
     return criteria
@@ -396,7 +396,9 @@ def _generate_recommendations(
         advice.append(f"High 이슈 {high_count}건이 미해결입니다. 영향도 검토 후 배포 여부를 결정하세요.")
 
     pct = progress.get("pct", 0)
-    if pct < 100:
+    if pct == "?":
+        advice.append("테스트 진행률을 확인할 수 없습니다. 테스트케이스 시트 접근 권한을 확인하세요.")
+    elif pct < 100:
         advice.append(f"테스트 진행률이 {pct}%입니다. 미완료 테스트 케이스를 확인하세요.")
 
     # 플랫폼 불균형 체크

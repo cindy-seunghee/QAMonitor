@@ -60,6 +60,16 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     platform_breakdown = data.get("platform_breakdown", {})
     critical_issues = data.get("critical_issues", [])
 
+    # 진행률이 "?"인 경우 표시용 값 분리
+    pct_raw = progress.get("pct", 0)
+    pct_is_unknown = (pct_raw == "?")
+    pct_display = "?" if pct_is_unknown else pct_raw
+    pct_num = 0 if pct_is_unknown else pct_raw
+    progress_source = progress.get("source", "")
+    progress_note = ""
+    if pct_is_unknown:
+        progress_note = f"<div style='font-size:12px;color:#f97316;margin-top:8px'>⚠ 테스트케이스 시트 접근 불가 — 진행률을 확인할 수 없습니다</div>"
+
     # 배포 체크리스트 HTML (md 파일에서 로드)
     if checklist_items:
         checklist_html = "\n          ".join(f"<p>☑ {item}</p>" for item in checklist_items)
@@ -389,7 +399,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     <div class="grid-4">
       <div class="card metric-card">
         <div class="metric-label">테스트 진행률</div>
-        <div class="metric-value metric-purple">{progress.get('pct', 0)}%</div>
+        <div class="metric-value metric-purple">{pct_display}{'%' if not pct_is_unknown else ''}</div>
         <div class="metric-sub">{progress.get('done', 0)} / {progress.get('total', 0)} 완료</div>
       </div>
       <div class="card metric-card">
@@ -415,10 +425,11 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     <div class="section-title">테스트 진행 현황</div>
     <div class="card">
       <div class="big-progress-wrap">
-        <div class="big-progress-bar" style="width:{progress.get('pct', 0)}%">
-          {progress.get('pct', 0)}%
+        <div class="big-progress-bar" style="width:{pct_num}%">
+          {pct_display}{'%' if not pct_is_unknown else ''}
         </div>
       </div>
+      {progress_note}
       <div class="progress-stats">
         <div class="progress-stat">
           <div class="dot" style="background:#22c55e"></div>

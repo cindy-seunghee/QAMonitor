@@ -122,25 +122,31 @@ def _cell_to_index(cell: str) -> tuple[int, int]:
     return int(row_str) - 1, col
 
 
-def fetch_test_progress(qa_card: dict, cell: str = "K14") -> float | None:
+def fetch_test_progress(qa_card: dict, cell: str = "K14") -> dict:
     """
     QA카드의 테스트케이스 구글시트에서 진행률(%)을 읽어온다.
-    Returns: 진행률 (예: 58.4) 또는 None (읽기 실패)
+    Returns: {"value": float|None, "error": str|None, "sheet_url": str|None}
+      - 성공: {"value": 58.4, "error": None, ...}
+      - 시트 없음: {"value": None, "error": None, ...}
+      - 접근 불가: {"value": None, "error": "시트 접근 권한 필요 (비공개)", ...}
     """
     url = _find_testcase_sheet_url(qa_card)
     if not url:
-        return None
+        return {"value": None, "error": None, "sheet_url": None}
 
     sheet_id, gid = _parse_sheet_id_and_gid(url)
     if not sheet_id:
-        return None
+        return {"value": None, "error": "시트 URL 파싱 실패", "sheet_url": url}
 
     csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
     try:
         resp = requests.get(csv_url, timeout=15)
+        if resp.status_code in (401, 403):
+            print(f"      ⚠ 구글시트 접근 불가 (비공개)")
+            return {"value": None, "error": "시트 접근 권한 필요 (비공개). 링크 공유 설정을 확인해주세요.", "sheet_url": url}
         if not resp.ok:
             print(f"      ⚠ 구글시트 접근 실패: HTTP {resp.status_code}")
-            return None
+            return {"value": None, "error": f"HTTP {resp.status_code}", "sheet_url": url}
 
         row_idx, col_idx = _cell_to_index(cell)
         reader = csv.reader(io.StringIO(resp.text))
@@ -149,14 +155,14 @@ def fetch_test_progress(qa_card: dict, cell: str = "K14") -> float | None:
                 if col_idx < len(row):
                     raw = row[col_idx].strip().replace("%", "")
                     try:
-                        return float(raw)
+                        return {"value": float(raw), "error": None, "sheet_url": url}
                     except ValueError:
-                        print(f"      ⚠ 진행률 파싱 실패: '{row[col_idx]}'")
-                        return None
+                        return {"value": None, "error": f"진행률 파싱 실패: '{row[col_idx]}'", "sheet_url": url}
                 break
     except Exception as e:
         print(f"      ⚠ 구글시트 읽기 오류: {e}")
-    return None
+        return {"value": None, "error": str(e), "sheet_url": url}
+    return {"value": None, "error": "셀을 찾을 수 없음", "sheet_url": url}
 
 
 # ── QA카드 Description 파싱 ──────────────────────────────────────────────
@@ -295,18 +301,22 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
 
     # 구글시트에서 테스트 진행률 읽기
     progress_cell = config.get("linear", {}).get("test_progress_cell", "K14")
-    sheet_progress = fetch_test_progress(qa_card, cell=progress_cell)
-    if sheet_progress is not None:
-        data["progress"]["pct"] = sheet_progress
+    sheet_result = fetch_test_progress(qa_card, cell=progress_cell)
+
+    if sheet_result["value"] is not None:
+        data["progress"]["pct"] = sheet_result["value"]
         data["progress"]["source"] = "google_sheet"
-        print(f"      테스트 진행률 (구글시트): {sheet_progress}%")
+        print(f"      테스트 진행률 (구글시트): {sheet_result['value']}%")
+    elif sheet_result["error"]:
+        data["progress"]["pct"] = "?"
+        data["progress"]["source"] = "unavailable"
+        data["progress"]["error"] = sheet_result["error"]
+        print(f"      ⚠ 테스트 진행률 읽기 실패: {sheet_result['error']}")
     else:
         data["progress"]["source"] = "linear"
 
-    # 테스트케이스 시트 URL도 저장
-    tc_url = _find_testcase_sheet_url(qa_card)
-    if tc_url:
-        data["testcase_sheet_url"] = tc_url
+    if sheet_result["sheet_url"]:
+        data["testcase_sheet_url"] = sheet_result["sheet_url"]
 
     dash_cfg = config.get("dashboard", {})
     checklist_path = dash_cfg.get("checklist_path", "deployment_checklist.md")

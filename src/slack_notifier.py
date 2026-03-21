@@ -198,7 +198,14 @@ class SlackNotifier:
         total = p.get("total", 0)
         in_progress = p.get("in_progress", 0)
         not_started = p.get("not_started", 0)
-        bar = _text_bar(pct)
+
+        if pct == "?":
+            bar = "░" * 10
+            pct_text = "`?`  _(시트 접근 불가)_"
+        else:
+            bar = _text_bar(pct)
+            pct_text = f"`{pct}%`"
+
         return [{
             "type": "section",
             "fields": [
@@ -206,7 +213,7 @@ class SlackNotifier:
                     "type": "mrkdwn",
                     "text": (
                         f"*테스트 진행률*\n"
-                        f"{bar}  `{pct}%`\n"
+                        f"{bar}  {pct_text}\n"
                         f"완료 {done}  /  전체 {total}\n"
                         f"진행중 {in_progress}  ·  미시작 {not_started}"
                     ),
@@ -370,8 +377,9 @@ class SlackNotifier:
 
     def _summary_fallback(self, data: dict) -> str:
         pct = data.get("progress", {}).get("pct", 0)
+        pct_str = "?" if pct == "?" else f"{pct}%"
         bugs = data.get("open_bug_count", 0)
-        return f"QA 일일 리포트 | 진행률 {pct}% | 미해결 버그 {bugs}건"
+        return f"QA 일일 리포트 | 진행률 {pct_str} | 미해결 버그 {bugs}건"
 
     # ── QAM 개인 채널 메시지 ───────────────────────────────────────────────
 

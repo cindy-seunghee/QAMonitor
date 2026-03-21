@@ -142,15 +142,17 @@ def run(config: dict) -> str:
             else:
                 print("      ⚠ Slack 채널 미설정 — 전송 건너뜀")
 
-            # ── QA매니저 DM: 권고사항 발송 ──
-            recommendations = data.get("recommendations")
-            if recommendations:
-                manager_cfg = user_map.get(manager_name, {})
-                slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
-                if slack_id:
+            # ── QA매니저 DM: 권고사항 + 시트 접근 오류 알림 ──
+            manager_cfg = user_map.get(manager_name, {})
+            slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+            if slack_id:
+                if not notifier:
+                    notifier = SlackNotifier()
+
+                # 권고사항 DM
+                recommendations = data.get("recommendations")
+                if recommendations:
                     try:
-                        if not notifier:
-                            notifier = SlackNotifier()
                         notifier.send_recommendation_dm(
                             slack_id=slack_id,
                             qa_card_title=f"{card_id}: {qa_card['title']}",
@@ -158,6 +160,17 @@ def run(config: dict) -> str:
                         )
                     except Exception as e:
                         print(f"  ⚠ 권고사항 DM 실패: {e}")
+
+                # 시트 접근 오류 DM
+                progress_error = data.get("progress", {}).get("error")
+                if progress_error:
+                    try:
+                        notifier.send_error_dm(slack_id, [{
+                            "step": f"테스트 진행률 ({card_id})",
+                            "detail": progress_error,
+                        }])
+                    except Exception as e:
+                        print(f"  ⚠ 시트 오류 DM 실패: {e}")
 
     # ── 에러 DM 발송 ──
     _notify_errors(config, errors)
