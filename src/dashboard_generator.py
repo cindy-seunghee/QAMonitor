@@ -83,7 +83,26 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
 
     status_labels = json.dumps([s["status"] for s in status_breakdown[:8]])
     status_values = json.dumps([s["count"] for s in status_breakdown[:8]])
-    status_colors = json.dumps([s["color"] for s in status_breakdown[:8]])
+    _status_color_map = {
+        "Todo": "#ef4444",                # 빨강 — 미시작
+        "Backlog": "#ef4444",             # 빨강
+        "In Progress": "#f97316",         # 주황 — 작업 중
+        "In Review": "#eab308",           # 노랑 — 리뷰 대기
+        "개발자 QA DONE": "#a78bfa",       # 보라 — QA 검증 전 (불확실)
+        "Staging QA DONE": "#22c55e",     # 초록 — 해결
+        "Prodmini QA DONE": "#22c55e",    # 초록
+        "Prod QA DONE": "#22c55e",        # 초록
+        "Done": "#16a34a",                # 진한 초록
+        "Not a Bug": "#9ca3af",           # 회색 — 제외
+        "Can't Reproduce": "#d1d5db",     # 연회색
+        "Won't Fix": "#d1d5db",           # 연회색
+        "Canceled": "#d1d5db",            # 연회색
+        "Duplicate": "#d1d5db",           # 연회색
+    }
+    status_colors = json.dumps([
+        _status_color_map.get(s["status"], s.get("color", "#9ca3af"))
+        for s in status_breakdown[:8]
+    ])
 
     trend_labels = json.dumps(trend.get("labels", []))
     trend_created = json.dumps(trend.get("created", []))
@@ -249,6 +268,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{project_name} - QA 대시보드</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; }}
@@ -605,9 +625,15 @@ const priorityChart = new Chart(document.getElementById('priorityChart'), {{
   options: {{
     responsive: true, maintainAspectRatio: false,
     plugins: {{
-      legend: {{ position: 'right', labels: {{ font: {{ size: 12 }}, boxWidth: 14 }} }}
+      legend: {{ position: 'right', labels: {{ font: {{ size: 12 }}, boxWidth: 14 }} }},
+      datalabels: {{
+        color: '#fff',
+        font: {{ weight: 'bold', size: 13 }},
+        formatter: (value) => value > 0 ? value : ''
+      }}
     }}
-  }}
+  }},
+  plugins: [ChartDataLabels]
 }});
 
 const statusChart = new Chart(document.getElementById('statusChart'), {{
@@ -618,7 +644,7 @@ const statusChart = new Chart(document.getElementById('statusChart'), {{
   }},
   options: {{
     responsive: true, maintainAspectRatio: false,
-    plugins: {{ legend: {{ display: false }} }},
+    plugins: {{ legend: {{ display: false }}, datalabels: {{ display: false }} }},
     scales: {{
       x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 11 }} }} }},
       y: {{ beginAtZero: true, ticks: {{ stepSize: 1 }} }}
@@ -647,7 +673,7 @@ const trendChart = new Chart(document.getElementById('trendChart'), {{
   }},
   options: {{
     responsive: true, maintainAspectRatio: false,
-    plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 12 }} }} }} }},
+    plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 12 }} }} }}, datalabels: {{ display: false }} }},
     scales: {{
       x: {{ grid: {{ display: false }} }},
       y: {{ beginAtZero: true, ticks: {{ stepSize: 1 }} }}
