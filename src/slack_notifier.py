@@ -87,27 +87,11 @@ class SlackNotifier:
     ) -> None:
         user_map = user_map or {}
         template = _load_template(template_path)
-        main_cfg = template.get("main", {})
         threads = template.get("threads", [])
-
         test_phase = data.get("test_phase", "")
 
-        # {test_phase} 치환
-        intro = (main_cfg.get("intro", "") or "").replace("{test_phase}", test_phase)
-        footer = (main_cfg.get("footer", "") or "").replace("{test_phase}", test_phase)
-
-        # 1) 메인 메시지 전송 → thread_ts 획득
-        title_prefix = f"[{test_phase}] " if test_phase else ""
-        main_blocks = self._build_section_blocks(
-            sections=main_cfg.get("sections", []),
-            data=data,
-            user_map=user_map,
-            intro=intro,
-            footer=footer,
-            title=f"{title_prefix}{data.get('project_name', 'QA')} 일일 리포트"
-            + (f"  |  {data['dday']}" if data.get("dday") else ""),
-            dashboard_path=dashboard_path,
-        )
+        # 1) 메인 메시지 — 새 양식
+        main_blocks = self._build_main_message(data, user_map, dashboard_path)
         fallback = self._summary_fallback(data)
         thread_ts = self._post(channel, main_blocks, text=fallback)
 
@@ -121,7 +105,6 @@ class SlackNotifier:
             if not t_sections:
                 continue
 
-            # [통합테스트] / [리그레션테스트] 태그가 있으면 해당 단계에서만 전송
             if "[통합테스트]" in t_title and test_phase != "통합테스트":
                 continue
             if "[리그레션테스트]" in t_title and test_phase != "리그레션테스트":
@@ -134,6 +117,90 @@ class SlackNotifier:
                 title=t_title,
             )
             self._post_thread(channel, thread_ts, thread_blocks, text=t_title)
+
+    # ── 메인 메시지 빌더 (새 양식) ──────────────────────────────────────────
+
+    def _build_main_message(
+        self, data: dict, user_map: dict, dashboard_path: str = None,
+    ) -> list[dict]:
+        from datetime import datetime
+
+        today = datetime.now().strftime("%m/%d")
+        project_name = data.get("project_name", "QA")
+        test_phase = data.get("test_phase", "")
+        progress_status = data.get("progress_status", {})
+        pct = data.get("progress", {}).get("pct", 0)
+        open_bug_count = data.get("open_bug_count", 0)
+        open_bugs = data.get("open_bugs", [])
+        by_assignee = data.get("by_assignee", {})
+
+        # 아이콘
+        icon = progress_status.get("icon", ":mulgae_love:")
+
+        # 진행률 표시
+        if pct == "?":
+            pct_text = "?"
+        else:
+            pct_text = str(pct)
+
+        # 잔여 이슈 링크 (전체 잔여이슈 뷰)
+        qa_card = data.get("qa_card", {})
+        card_id = qa_card.get("identifier", "")
+        remaining_link = f"<https://linear.app/buzzvil/view|{open_bug_count}건>"
+
+        # 우선순위별 건수
+        urgent_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "Urgent")
+        high_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "High")
+        medium_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "Medium")
+        low_count = sum(1 for b in open_bugs if b.get("priorityLabel") in ("Low", "No priority"))
+
+        # 우선순위 라인 (없는 경우 생략)
+        priority_lines = ""
+        if urgent_count > 0:
+            priority_lines += f"\n    \u25E6 *Urgent* : *`{urgent_count}`*건"
+        if high_count > 0:
+            priority_lines += f"\n    \u25E6 *High* : *`{high_count}`*건"
+        if medium_count > 0:
+            priority_lines += f"\n    \u25E6 Medium : {medium_count}건"
+        if low_count > 0:
+            priority_lines += f"\n    \u25E6 Low : {low_count}건"
+
+        # 대시보드 링크
+        dash_text = f"`{dashboard_path}`" if dashboard_path else "생성 안 됨"
+
+        # 잔여 이슈가 있는 개발자만 멘션
+        mentions = []
+        for name, info in by_assignee.items():
+            if len(info.get("open_bugs", [])) > 0:
+                uid_or_cfg = user_map.get(name, {})
+                slack_id = uid_or_cfg.get("slack_id") if isinstance(uid_or_cfg, dict) else uid_or_cfg
+                if slack_id:
+                    mentions.append(f"<@{slack_id}>")
+                else:
+                    mentions.append(f"*{name}*")
+
+        mention_text = ", ".join(mentions) if mentions else ""
+
+        # 메시지 조립
+        phase_text = f"`{test_phase}` " if test_phase else ""
+        lines = f"*{today} {project_name}* *{phase_text}진행 상황*"
+        lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`* *%*"
+        lines += f"\n\u2022 *잔여 이슈* : *`{open_bug_count}`*건"
+        if priority_lines:
+            lines += priority_lines
+        lines += f"\n\u2022 *대시보드* ({dash_text})"
+
+        if mention_text:
+            lines += f"\n{mention_text}"
+            lines += "\n미수정 결함을 확인해주세요 :mulgae_sad:"
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": lines},
+            },
+        ]
+        return blocks
 
     # ── 섹션 라우터 ─────────────────────────────────────────────────────────
 

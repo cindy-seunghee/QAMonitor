@@ -291,6 +291,95 @@ def parse_test_phases(qa_card: dict) -> dict:
     }
 
 
+# ── 워킹데이 계산 + 계획 대비 진행률 ────────────────────────────────────
+
+def _count_working_days(start: str, end: str) -> int:
+    """start~end(YYYY-MM-DD) 사이 워킹데이 수 (주말+공휴일 제외, 양 끝 포함)"""
+    from datetime import datetime, timedelta
+    import holidays
+
+    kr_holidays = holidays.KR(years=[2025, 2026, 2027])
+    s = datetime.strptime(start, "%Y-%m-%d").date()
+    e = datetime.strptime(end, "%Y-%m-%d").date()
+    count = 0
+    d = s
+    while d <= e:
+        if d.weekday() < 5 and d not in kr_holidays:
+            count += 1
+        d += timedelta(days=1)
+    return count
+
+
+def _working_days_elapsed(start: str) -> int:
+    """start~오늘까지 경과한 워킹데이 수"""
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    return _count_working_days(start, today)
+
+
+def calc_progress_status(test_phases: dict, actual_pct: float | str) -> dict:
+    """
+    계획 대비 진행률을 계산하고 아이콘을 결정한다.
+    Returns: {
+        "expected_pct": float,   # 오늘까지의 계획 진행률
+        "actual_pct": float,     # 실제 진행률
+        "ratio": float,          # actual / expected
+        "icon": str,             # :mulgae_redcard: / :mulgae_yellowcard: / :mulgae_love:
+    }
+    """
+    current_phase = test_phases.get("current_phase", "")
+
+    # 실제 진행률이 ?인 경우
+    if actual_pct == "?" or not isinstance(actual_pct, (int, float)):
+        return {
+            "expected_pct": 0,
+            "actual_pct": 0,
+            "ratio": 0,
+            "icon": ":mulgae_redcard:",
+        }
+
+    # 현재 단계의 기간 가져오기
+    if current_phase == "통합테스트" and test_phases.get("integration"):
+        phase = test_phases["integration"]
+    elif current_phase == "리그레션테스트" and test_phases.get("regression"):
+        phase = test_phases["regression"]
+    else:
+        # 단계 판단 불가 — 아이콘만 기본값
+        return {
+            "expected_pct": 0,
+            "actual_pct": actual_pct,
+            "ratio": 1,
+            "icon": ":mulgae_love:",
+        }
+
+    total_days = _count_working_days(phase["start"], phase["end"])
+    elapsed = _working_days_elapsed(phase["start"])
+
+    if total_days <= 0:
+        expected_pct = 100.0
+    else:
+        expected_pct = round(min(elapsed / total_days, 1.0) * 100, 1)
+
+    if expected_pct <= 0:
+        ratio = 1.0
+    else:
+        ratio = actual_pct / expected_pct
+
+    if ratio <= 0.5:
+        icon = ":mulgae_redcard:"
+    elif ratio <= 0.7:
+        icon = ":mulgae_yellowcard:"
+    else:
+        icon = ":mulgae_love:"
+
+    return {
+        "expected_pct": expected_pct,
+        "actual_pct": actual_pct,
+        "ratio": round(ratio, 2),
+        "icon": icon,
+    }
+
+
 VIEW_TARGET_STATES = ["Backlog", "Todo", "In Progress", "In Review"]
 
 
@@ -392,6 +481,12 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
 
     if sheet_result["sheet_url"]:
         data["testcase_sheet_url"] = sheet_result["sheet_url"]
+
+    # 계획 대비 진행률 + 아이콘 결정
+    progress_status = calc_progress_status(test_phases, data["progress"]["pct"])
+    data["progress_status"] = progress_status
+    if progress_status["expected_pct"] > 0:
+        print(f"      계획 진행률: {progress_status['expected_pct']}% | 실제: {progress_status['actual_pct']}% | 아이콘: {progress_status['icon']}")
 
     dash_cfg = config.get("dashboard", {})
     checklist_path = dash_cfg.get("checklist_path", "deployment_checklist.md")

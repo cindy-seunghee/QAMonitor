@@ -1,18 +1,23 @@
 # 메인 메시지
-# 채널에 보이는 첫 번째 메시지입니다.
-# {test_phase}는 현재 테스트 단계로 자동 치환됩니다 (통합테스트 / 리그레션테스트)
-intro: [{test_phase}] QA 현황 보고입니다.
-sections: progress, bug_summary, priority_breakdown, exit_summary
-footer: 담당자별 상세 현황과 배포 기준은 스레드를 확인해주세요.
+# {} 안의 값은 자동으로 치환됩니다.
+# 아이콘은 계획 대비 진행률에 따라 자동 결정:
+#   ≤50% → :mulgae_redcard:  /  ≤70% → :mulgae_yellowcard:  /  >70% → :mulgae_love:
+format: *{today} {project_name}* *`{test_phase}` 진행 상황*
+format: {progress_icon} *테스트 진행률* : *`{progress_pct}`* *%*
+format: • *잔여 이슈* : *`{open_bug_count}`*건({remaining_issues_link})
+format:     ◦ *Urgent* : *`{urgent_count}`*건 {urgent_if_exists}
+format:     ◦ *High* : *`{high_count}`*건 {high_if_exists}
+format:     ◦ Medium : {medium_count}건 {medium_if_exists}
+format:     ◦ Low : {low_count}건 {low_if_exists}
+format: • *대시보드* ({dashboard_link})
+format: {developer_mentions}
+format: 미수정 결함을 확인해주세요 :mulgae_sad:
 
 # 스레드: 담당자별 현황
-# QAM 멘션 + 담당 테스트 진행률 + 미해결 버그 목록
 sections: assignee_detail
 
 # 스레드: 배포 기준 체크리스트 [통합테스트]
-# 통합테스트 단계일 때만 표시
 sections: exit_checklist
 
 # 스레드: 배포 기준 체크리스트 [리그레션테스트]
-# 리그레션테스트 단계일 때만 표시
 sections: exit_checklist
