@@ -47,6 +47,9 @@ slack:
   # Slack 메시지 구성 템플릿 파일
   template_path: "slack_template.md"
 
+  # 에러 발생 시 DM 알림 받을 사용자 (user_map 키 이름)
+  error_notify: ""                # 예: "Liana" — 비우면 DM 안 보냄
+
   # 담당자별 DM 전송 여부
   send_dm_to_assignees: false     # true: 각 담당자에게 DM 발송
                                   # false: 채널 메시지에 멘션으로 통합

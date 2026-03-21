@@ -1,5 +1,7 @@
 """Slack 봇 노티파이어 — Block Kit 기반 메시지 전송"""
 
+from __future__ import annotations
+
 import os
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -426,6 +428,41 @@ class SlackNotifier:
         ]
 
         self._post(channel, blocks, text=f"[QA] {assignee_name} 현황")
+
+    # ── 에러 DM 알림 ─────────────────────────────────────────────────────
+
+    def send_error_dm(self, slack_id: str, errors: list[dict]) -> None:
+        """
+        에러 목록을 DM으로 전송한다.
+        errors: [{"step": "단계명", "detail": "에러 상세"}, ...]
+        """
+        error_lines = "\n".join(
+            f"• *{e['step']}*\n  `{e['detail']}`"
+            for e in errors
+        )
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "QA Monitor 실행 오류", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"실행 중 *{len(errors)}건*의 오류가 발생했습니다.\n\n{error_lines}",
+                },
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"QA Monitor 오류 {len(errors)}건 발생",
+                unfurl_links=False,
+            )
+            print(f"  ✓ 에러 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  ✗ 에러 DM 전송 실패: {e.response['error']}")
 
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 
