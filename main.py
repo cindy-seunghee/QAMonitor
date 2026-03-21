@@ -26,6 +26,16 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def _is_holiday() -> bool:
+    """오늘이 주말 또는 한국 공휴일이면 True"""
+    from datetime import date
+    import holidays
+    today = date.today()
+    if today.weekday() >= 5:
+        return True
+    return today in holidays.KR(years=today.year)
+
+
 def _notify_errors(config: dict, errors: list[dict]) -> None:
     """에러가 있으면 error_notify 대상에게 DM 발송."""
     if not errors:
@@ -342,13 +352,19 @@ def main():
             print(f"Linear 연결 성공: {me['name']} ({me['email']})")
 
         elif args.run_now:
+            if _is_holiday():
+                print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
+                return
             run(config)
 
         elif args.run_for:
+            if _is_holiday():
+                print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
+                return
             run_for_assignee(config, args.run_for)
 
         elif args.run_card:
-            run_single_card(config, args.run_card)
+            run_single_card(config, args.run_card)  # 수동 테스트용이므로 공휴일 체크 안 함
 
         elif args.dashboard_only:
             from src.qa_discoverer import (
