@@ -183,9 +183,23 @@ class SlackNotifier:
 
         # 메시지 조립
         phase_text = f"`{test_phase}` " if test_phase else ""
-        lines = f"*{project_name}* {phase_text}*진행 상황 ({today})*"
+        qa_card = data.get("qa_card", {})
+        card_url = qa_card.get("url", "")
+        if not card_url:
+            card_id = qa_card.get("identifier", "")
+            if card_id:
+                card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+        if card_url:
+            project_link = f"<{card_url}|{project_name}>"
+        else:
+            project_link = project_name
+        lines = f"*{project_link}* {phase_text}*진행 상황 ({today})*"
         lines += f"\n"
-        lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`%*"
+        tc_url = data.get("testcase_sheet_url", "")
+        if tc_url and pct_text != "?":
+            lines += f"\n{icon} *테스트 진행률* : <{tc_url}|*`{pct_text}`*>*%*"
+        else:
+            lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`%*"
         total_url = view_urls.get("total", "")
         my_url = view_urls.get("my", "")
 

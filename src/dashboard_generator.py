@@ -15,7 +15,14 @@ def _load_checklist(path: str) -> list[str]:
         for line in lines:
             stripped = line.strip()
             if stripped.startswith("- "):
-                items.append(stripped[2:].strip())
+                item = stripped[2:].strip()
+                # [ ] 체크박스 제거
+                if item.startswith("[ ] "):
+                    item = item[4:]
+                # ** 마크다운 볼드 → HTML <strong>
+                import re
+                item = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', item)
+                items.append(item)
         return items
     except FileNotFoundError:
         return []
@@ -69,6 +76,16 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     progress_note = ""
     if pct_is_unknown:
         progress_note = f"<div style='font-size:12px;color:#f97316;margin-top:8px'>⚠ 테스트케이스 시트 접근 불가 — 진행률을 확인할 수 없습니다</div>"
+
+    # 프로그레스바 색상 (계획 대비 진행률 기준)
+    progress_status = data.get("progress_status", {})
+    progress_ratio = progress_status.get("ratio", 1)
+    if pct_is_unknown or progress_ratio <= 0.5:
+        progress_bar_color = "#ef4444"        # 빨강
+    elif progress_ratio <= 0.7:
+        progress_bar_color = "#eab308"        # 노랑
+    else:
+        progress_bar_color = "#3b82f6"        # 파랑
 
     # 배포 체크리스트 HTML (md 파일에서 로드)
     if checklist_items:
@@ -445,29 +462,11 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     <div class="section-title">테스트 진행 현황</div>
     <div class="card">
       <div class="big-progress-wrap">
-        <div class="big-progress-bar" style="width:{pct_num}%">
+        <div class="big-progress-bar" style="width:{pct_num}%;background:{progress_bar_color}">
           {pct_display}{'%' if not pct_is_unknown else ''}
         </div>
       </div>
       {progress_note}
-      <div class="progress-stats">
-        <div class="progress-stat">
-          <div class="dot" style="background:#22c55e"></div>
-          완료 {progress.get('done', 0)}개
-        </div>
-        <div class="progress-stat">
-          <div class="dot" style="background:#f97316"></div>
-          진행중 {progress.get('in_progress', 0)}개
-        </div>
-        <div class="progress-stat">
-          <div class="dot" style="background:#e5e7eb"></div>
-          미시작 {progress.get('not_started', 0)}개
-        </div>
-        <div class="progress-stat">
-          <div class="dot" style="background:#8b5cf6"></div>
-          전체 {progress.get('total', 0)}개
-        </div>
-      </div>
     </div>
   </div>
 
@@ -597,18 +596,10 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   <!-- ── 배포 기준 체크 ── -->
   <div class="section">
     <div class="section-title">배포 기준 체크리스트</div>
-    <div class="grid-2">
-      <div class="card">
-        {criteria_rows if criteria_rows else '<p class="text-muted" style="text-align:center;padding:20px">기준 없음</p>'}
-        <div class="deploy-status {verdict_cls}">
-          {verdict_icon} {verdict_text}
-        </div>
-      </div>
-      <div class="card">
-        <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:14px">배포 체크리스트 가이드</div>
-        <div style="font-size:13px;line-height:1.8;color:#4b5563;">
-          {checklist_html}
-        </div>
+    <div class="card">
+      {criteria_rows if criteria_rows else '<p class="text-muted" style="text-align:center;padding:20px">기준 없음</p>'}
+      <div class="deploy-status {verdict_cls}">
+        {verdict_icon} {verdict_text}
       </div>
     </div>
   </div>
