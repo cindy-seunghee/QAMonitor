@@ -226,6 +226,71 @@ def parse_release_date(qa_card: dict) -> str | None:
     return None
 
 
+def _parse_date_range(text: str) -> tuple[str | None, str | None]:
+    """'3/9 ~ 3/17 (7일)' 또는 'Mar 24th ~ Mar 21st' → (시작일, 종료일) YYYY-MM-DD"""
+    # '~' 또는 '\~' 로 분리
+    parts = re.split(r"\\?~", text)
+    if len(parts) < 2:
+        return None, None
+    start = _parse_date_flexible(parts[0].strip())
+    # 종료일에서 괄호 이후 제거 (예: "3/17  (7일)")
+    end_text = re.sub(r"\(.*\)", "", parts[1]).strip()
+    end = _parse_date_flexible(end_text)
+    return start, end
+
+
+def parse_test_phases(qa_card: dict) -> dict:
+    """
+    QA카드 Description에서 통합테스트/리그레션테스트 기간을 추출한다.
+    Returns: {
+        "integration": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} | None,
+        "regression": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} | None,
+        "current_phase": "통합테스트" | "리그레션테스트" | "테스트 전" | "테스트 완료"
+    }
+    """
+    from datetime import datetime
+
+    description = qa_card.get("description") or ""
+    integration = None
+    regression = None
+
+    for line in description.splitlines():
+        stripped = line.strip().lstrip("*").strip()
+        if re.match(r"통합테스트\s*:", stripped):
+            date_part = stripped.split(":", 1)[1].strip()
+            start, end = _parse_date_range(date_part)
+            if start and end:
+                integration = {"start": start, "end": end}
+        elif re.match(r"리그레션테스트\s*:", stripped):
+            date_part = stripped.split(":", 1)[1].strip()
+            start, end = _parse_date_range(date_part)
+            if start and end:
+                regression = {"start": start, "end": end}
+
+    # 오늘 날짜 기준 현재 단계 판단
+    today = datetime.now().strftime("%Y-%m-%d")
+    current_phase = "테스트 전"
+
+    if integration and integration["start"] <= today <= integration["end"]:
+        current_phase = "통합테스트"
+    elif regression and regression["start"] <= today <= regression["end"]:
+        current_phase = "리그레션테스트"
+    elif regression and today > regression["end"]:
+        current_phase = "테스트 완료"
+    elif integration and today > integration["end"]:
+        # 통합 끝났지만 리그레션 안 시작
+        if regression and today < regression["start"]:
+            current_phase = "리그레션 대기"
+        else:
+            current_phase = "리그레션테스트"
+
+    return {
+        "integration": integration,
+        "regression": regression,
+        "current_phase": current_phase,
+    }
+
+
 VIEW_TARGET_STATES = ["Backlog", "Todo", "In Progress", "In Review"]
 
 
@@ -299,8 +364,18 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
     data["project_name"] = qa_card["title"]
     data["qa_card"] = qa_card
 
-    # 구글시트에서 테스트 진행률 읽기
-    progress_cell = config.get("linear", {}).get("test_progress_cell", "K14")
+    # 테스트 단계 판단
+    test_phases = parse_test_phases(qa_card)
+    data["test_phase"] = test_phases["current_phase"]
+    data["test_phases"] = test_phases
+    print(f"      테스트 단계: {test_phases['current_phase']}")
+
+    # 단계별 진행률 셀 분기
+    linear_cfg = config.get("linear", {})
+    if test_phases["current_phase"] == "리그레션테스트":
+        progress_cell = linear_cfg.get("regression_progress_cell", "L14")
+    else:
+        progress_cell = linear_cfg.get("test_progress_cell", "K14")
     sheet_result = fetch_test_progress(qa_card, cell=progress_cell)
 
     if sheet_result["value"] is not None:

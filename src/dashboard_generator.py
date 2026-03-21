@@ -383,7 +383,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
 <div class="header">
   <div class="header-left">
     <h1>{project_name} — QA 모니터링 대시보드</h1>
-    <p>마지막 업데이트: {generated_at[:19].replace('T', ' ')}</p>
+    <p>{'[' + data.get('test_phase', '') + '] ' if data.get('test_phase') else ''}마지막 업데이트: {generated_at[:19].replace('T', ' ')}</p>
   </div>
   <div class="header-right">
     {'<div class="dday-badge">' + dday + '</div>' if dday else ''}

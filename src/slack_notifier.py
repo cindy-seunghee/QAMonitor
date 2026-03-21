@@ -90,14 +90,21 @@ class SlackNotifier:
         main_cfg = template.get("main", {})
         threads = template.get("threads", [])
 
+        test_phase = data.get("test_phase", "")
+
+        # {test_phase} 치환
+        intro = (main_cfg.get("intro", "") or "").replace("{test_phase}", test_phase)
+        footer = (main_cfg.get("footer", "") or "").replace("{test_phase}", test_phase)
+
         # 1) 메인 메시지 전송 → thread_ts 획득
+        title_prefix = f"[{test_phase}] " if test_phase else ""
         main_blocks = self._build_section_blocks(
             sections=main_cfg.get("sections", []),
             data=data,
             user_map=user_map,
-            intro=main_cfg.get("intro", ""),
-            footer=main_cfg.get("footer", ""),
-            title=f"{data.get('project_name', 'QA')} 일일 리포트"
+            intro=intro,
+            footer=footer,
+            title=f"{title_prefix}{data.get('project_name', 'QA')} 일일 리포트"
             + (f"  |  {data['dday']}" if data.get("dday") else ""),
             dashboard_path=dashboard_path,
         )
@@ -107,12 +114,19 @@ class SlackNotifier:
         if not thread_ts:
             return
 
-        # 2) 스레드 댓글 전송
+        # 2) 스레드 댓글 전송 (단계별 필터링)
         for thread_cfg in threads:
             t_title = thread_cfg.get("title", "")
             t_sections = thread_cfg.get("sections", [])
             if not t_sections:
                 continue
+
+            # [통합테스트] / [리그레션테스트] 태그가 있으면 해당 단계에서만 전송
+            if "[통합테스트]" in t_title and test_phase != "통합테스트":
+                continue
+            if "[리그레션테스트]" in t_title and test_phase != "리그레션테스트":
+                continue
+
             thread_blocks = self._build_section_blocks(
                 sections=t_sections,
                 data=data,
