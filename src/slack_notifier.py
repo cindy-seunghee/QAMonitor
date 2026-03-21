@@ -98,7 +98,11 @@ class SlackNotifier:
         if not thread_ts:
             return
 
-        # 2) 스레드 댓글 전송 (단계별 필터링)
+        # 2) 대시보드 파일 업로드 (스레드에 첨부)
+        if dashboard_path:
+            self._upload_file(channel, thread_ts, dashboard_path)
+
+        # 3) 스레드 댓글 전송 (단계별 필터링)
         for thread_cfg in threads:
             t_title = thread_cfg.get("title", "")
             t_sections = thread_cfg.get("sections", [])
@@ -157,9 +161,9 @@ class SlackNotifier:
         # 우선순위 라인 (없는 경우 생략)
         priority_lines = ""
         if urgent_count > 0:
-            priority_lines += f"\n    \u25E6 *Urgent* : *`{urgent_count}`*건"
+            priority_lines += f"\n    \u25E6 *Urgent : `{urgent_count}`건*"
         if high_count > 0:
-            priority_lines += f"\n    \u25E6 *High* : *`{high_count}`*건"
+            priority_lines += f"\n    \u25E6 *High : `{high_count}`건*"
         if medium_count > 0:
             priority_lines += f"\n    \u25E6 Medium : {medium_count}건"
         if low_count > 0:
@@ -183,13 +187,11 @@ class SlackNotifier:
 
         # 메시지 조립
         phase_text = f"`{test_phase}` " if test_phase else ""
-        lines = f"*{today} {project_name}* *{phase_text}진행 상황*"
-        lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`* *%*"
-        lines += f"\n\u2022 *잔여 이슈* : *`{open_bug_count}`*건"
+        lines = f"*{project_name}* {phase_text}*진행 상황 ({today})*"
+        lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`%*"
+        lines += f"\n\u2022 *잔여 이슈* : *`{open_bug_count}`건*"
         if priority_lines:
             lines += priority_lines
-        lines += f"\n\u2022 *대시보드* ({dash_text})"
-
         if mention_text:
             lines += f"\n{mention_text}"
             lines += "\n미수정 결함을 확인해주세요 :mulgae_sad:"
@@ -455,6 +457,22 @@ class SlackNotifier:
             print(f"  ✓ 스레드 댓글 전송 완료: {text or '(제목 없음)'}")
         except SlackApiError as e:
             print(f"  ✗ 스레드 댓글 전송 실패: {e.response['error']}")
+
+    def _upload_file(
+        self, channel: str, thread_ts: str, file_path: str
+    ) -> None:
+        """대시보드 HTML 파일을 스레드에 업로드"""
+        try:
+            self.client.files_upload_v2(
+                channel=channel,
+                thread_ts=thread_ts,
+                file=file_path,
+                title="QA 모니터링 대시보드",
+                initial_comment="대시보드 파일",
+            )
+            print(f"  ✓ 대시보드 파일 업로드 완료: {file_path}")
+        except SlackApiError as e:
+            print(f"  ✗ 대시보드 파일 업로드 실패: {e.response['error']}")
 
     def _summary_fallback(self, data: dict) -> str:
         pct = data.get("progress", {}).get("pct", 0)
