@@ -146,6 +146,22 @@ def create_views_for_card(identifier: str) -> dict:
     skipped = []
     views = []
 
+    # 전체 잔여이슈 뷰
+    total_view_name = f"전체 잔여이슈 [{identifier}]"
+    if total_view_name in existing:
+        slug = existing[total_view_name].get("slugId") or existing[total_view_name]["id"]
+        views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
+        skipped.append("전체")
+    else:
+        filter_data = {
+            "parent": {"id": {"eq": parent_uuid}},
+            "state": {"name": {"in": valid_states}},
+        }
+        view = create_view(total_view_name, team_id, filter_data)
+        slug = view.get("slugId") or view["id"]
+        views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
+        created.append("전체")
+
     # 담당자별 뷰
     for uid, assignee in assignees.items():
         display_name = assignee.get("displayName") or assignee["name"]
