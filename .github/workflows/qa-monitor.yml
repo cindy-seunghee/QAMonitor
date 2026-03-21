@@ -37,9 +37,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create config.yaml
-        run: echo "$CONFIG_YAML" > config.yaml
         env:
           CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
 
       - name: Run QA Monitor — Single Card
         env:
@@ -74,9 +74,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create config.yaml
-        run: echo "$CONFIG_YAML" > config.yaml
         env:
           CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
 
       - name: Run QA Monitor — Cindy
         env:
@@ -111,9 +111,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create config.yaml
-        run: echo "$CONFIG_YAML" > config.yaml
         env:
           CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
 
       - name: Run QA Monitor — Liana
         env:
