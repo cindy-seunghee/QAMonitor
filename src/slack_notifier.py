@@ -429,6 +429,63 @@ class SlackNotifier:
 
         self._post(channel, blocks, text=f"[QA] {assignee_name} 현황")
 
+    # ── 권고사항 DM ──────────────────────────────────────────────────────
+
+    def send_recommendation_dm(
+        self, slack_id: str, qa_card_title: str, recommendations: dict
+    ) -> None:
+        """QA매니저에게 비크리티컬 처리 방안 + 권고사항을 DM으로 발송."""
+        blocks: list[dict] = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"QA 분석 권고사항 — {qa_card_title[:60]}", "emoji": True},
+            },
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "_이 메시지는 Claude Code의 데이터 기반 분석 의견입니다. QA매니저의 판단이 필요합니다._"}],
+            },
+            {"type": "divider"},
+        ]
+
+        # 비크리티컬 처리 방안
+        non_critical = recommendations.get("non_critical_plan", [])
+        if non_critical:
+            lines = "\n".join(
+                f"• *{item['category']}* ({item['count']}건)\n  {item['suggestion']}"
+                for item in non_critical
+            )
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*비크리티컬 이슈 처리 방안*\n{lines}"},
+            })
+            blocks.append({"type": "divider"})
+
+        # 배포 권고사항
+        advice = recommendations.get("advice", [])
+        if advice:
+            lines = "\n".join(f"• {a}" for a in advice)
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*배포 권고사항*\n{lines}"},
+            })
+
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "_데이터 기반 자동 분석 결과이며, 최종 판단은 QA매니저가 내려주세요._"}],
+        })
+
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"QA 권고사항: {qa_card_title}",
+                unfurl_links=False,
+            )
+            print(f"  ✓ 권고사항 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  ✗ 권고사항 DM 전송 실패: {e.response['error']}")
+
     # ── 에러 DM 알림 ─────────────────────────────────────────────────────
 
     def send_error_dm(self, slack_id: str, errors: list[dict]) -> None:

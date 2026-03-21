@@ -266,7 +266,7 @@ class LinearClient:
         issues: list[dict] = []
         cursor = None
         while True:
-            data = self._query(query, {"after": cursor})
+            data = self._query(query, {"parentId": parent_id, "after": cursor})
             conn = data["issue"]["children"]
             issues.extend(conn["nodes"])
             if not conn["pageInfo"]["hasNextPage"]:

@@ -93,6 +93,12 @@ def analyze(issues: list[dict], config: dict) -> dict:
     release_date_str = config.get("project", {}).get("release_date", "")
     dday = _calc_dday(release_date_str)
 
+    platform = _platform_breakdown(issues)
+    critical = _critical_issues(open_bugs)
+    recommendations = _generate_recommendations(
+        open_bugs, critical, progress, platform, exit_cfg, release_date_str
+    )
+
     return {
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "project_name": config.get("project", {}).get("name", "QA Project"),
@@ -107,6 +113,9 @@ def analyze(issues: list[dict], config: dict) -> dict:
         "status_breakdown": status_breakdown,
         "trend": trend,
         "exit_status": exit_status,
+        "platform_breakdown": platform,
+        "critical_issues": critical,
+        "recommendations": recommendations,
         "all_issues": issues,
         "qa_cards": qa_cards,
         "bug_issues": bug_issues,
@@ -297,6 +306,114 @@ def _today_new_issues(bug_issues: list[dict]) -> int:
         if created and created >= today_start:
             count += 1
     return count
+
+
+def _platform_breakdown(issues: list[dict]) -> dict[str, dict]:
+    """이슈 제목/라벨에서 플랫폼을 추출하여 분류"""
+    platforms = {"iOS": [], "Android": [], "Web": [], "공통": []}
+
+    for issue in issues:
+        title = (issue.get("title") or "").lower()
+        labels = [l["name"].lower() for l in issue.get("labels", {}).get("nodes", [])]
+        all_text = title + " " + " ".join(labels)
+
+        matched = False
+        if any(k in all_text for k in ["ios", "iphone", "swift"]):
+            platforms["iOS"].append(issue)
+            matched = True
+        if any(k in all_text for k in ["android", "aos", "kotlin"]):
+            platforms["Android"].append(issue)
+            matched = True
+        if any(k in all_text for k in ["web", "웹", "html", "frontend"]):
+            platforms["Web"].append(issue)
+            matched = True
+        if not matched:
+            platforms["공통"].append(issue)
+
+    result = {}
+    for name, items in platforms.items():
+        open_items = [i for i in items if i.get("state", {}).get("name") not in ("Done", "Cancelled")]
+        high_items = [i for i in open_items if i.get("priorityLabel") in ("Urgent", "High")]
+        result[name] = {
+            "total": len(items),
+            "open": len(open_items),
+            "high": len(high_items),
+        }
+    return result
+
+
+def _critical_issues(open_bugs: list[dict]) -> list[dict]:
+    """Urgent/High 미해결 버그만 추출"""
+    return [
+        b for b in open_bugs
+        if b.get("priorityLabel") in ("Urgent", "High")
+    ]
+
+
+def _generate_recommendations(
+    open_bugs: list[dict],
+    critical: list[dict],
+    progress: dict,
+    platform: dict,
+    exit_cfg: dict,
+    release_date_str: str,
+) -> dict:
+    """
+    데이터 기반 권고사항 자동 생성.
+    비크리티컬 이슈 처리 방안 + 배포 권고.
+    """
+    non_critical = [
+        b for b in open_bugs
+        if b.get("priorityLabel") not in ("Urgent", "High")
+    ]
+
+    # 비크리티컬 이슈 분류
+    medium_bugs = [b for b in non_critical if b.get("priorityLabel") == "Medium"]
+    low_bugs = [b for b in non_critical if b.get("priorityLabel") in ("Low", "No priority")]
+
+    non_critical_plan = []
+    if medium_bugs:
+        non_critical_plan.append({
+            "category": "Medium 이슈",
+            "count": len(medium_bugs),
+            "suggestion": "배포 전 수정 권고. 수정 불가 시 배포 후 핫픽스로 처리 검토.",
+        })
+    if low_bugs:
+        non_critical_plan.append({
+            "category": "Low / No priority 이슈",
+            "count": len(low_bugs),
+            "suggestion": "배포 후 다음 스프린트에서 처리. 사용자 영향이 미미한 항목.",
+        })
+
+    # 배포 권고사항
+    advice = []
+    urgent_count = len([b for b in critical if b.get("priorityLabel") == "Urgent"])
+    high_count = len([b for b in critical if b.get("priorityLabel") == "High"])
+
+    if urgent_count > 0:
+        advice.append(f"Urgent 이슈 {urgent_count}건이 미해결입니다. 배포 전 반드시 해결이 필요합니다.")
+    if high_count > 0:
+        advice.append(f"High 이슈 {high_count}건이 미해결입니다. 영향도 검토 후 배포 여부를 결정하세요.")
+
+    pct = progress.get("pct", 0)
+    if pct < 100:
+        advice.append(f"테스트 진행률이 {pct}%입니다. 미완료 테스트 케이스를 확인하세요.")
+
+    # 플랫폼 불균형 체크
+    ios_high = platform.get("iOS", {}).get("high", 0)
+    aos_high = platform.get("Android", {}).get("high", 0)
+    if ios_high > 0 and ios_high >= aos_high * 2:
+        advice.append(f"iOS에 High 이슈가 집중되어 있습니다 (iOS {ios_high}건 vs Android {aos_high}건). iOS 테스트 강화를 권고합니다.")
+    elif aos_high > 0 and aos_high >= ios_high * 2:
+        advice.append(f"Android에 High 이슈가 집중되어 있습니다 (Android {aos_high}건 vs iOS {ios_high}건). Android 테스트 강화를 권고합니다.")
+
+    if not advice:
+        advice.append("현재 특별한 리스크 없이 배포 가능한 상태입니다.")
+
+    return {
+        "non_critical_plan": non_critical_plan,
+        "advice": advice,
+    }
 
 
 def _calc_dday(release_date_str: str) -> str | None:

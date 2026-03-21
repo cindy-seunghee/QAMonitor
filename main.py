@@ -99,6 +99,7 @@ def run(config: dict) -> str:
     slack_cfg = config.get("slack", {})
     channel = slack_cfg.get("summary_channel") or os.environ.get("SLACK_CHANNEL_ID", "")
     user_map = resolve_user_map(slack_cfg.get("user_map") or {})
+    notifier = None
     last_dashboard_path = ""
 
     for manager_name, cards in cards_by_manager.items():
@@ -140,6 +141,23 @@ def run(config: dict) -> str:
                     errors.append({"step": f"Slack 전송 ({card_id})", "detail": str(e)})
             else:
                 print("      ⚠ Slack 채널 미설정 — 전송 건너뜀")
+
+            # ── QA매니저 DM: 권고사항 발송 ──
+            recommendations = data.get("recommendations")
+            if recommendations:
+                manager_cfg = user_map.get(manager_name, {})
+                slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+                if slack_id:
+                    try:
+                        if not notifier:
+                            notifier = SlackNotifier()
+                        notifier.send_recommendation_dm(
+                            slack_id=slack_id,
+                            qa_card_title=f"{card_id}: {qa_card['title']}",
+                            recommendations=recommendations,
+                        )
+                    except Exception as e:
+                        print(f"  ⚠ 권고사항 DM 실패: {e}")
 
     # ── 에러 DM 발송 ──
     _notify_errors(config, errors)

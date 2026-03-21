@@ -57,6 +57,8 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     open_bugs = data.get("open_bugs", [])
     max_bugs_display = data.get("max_bugs_display", 50)
     trend_days = data.get("trend_days", 14)
+    platform_breakdown = data.get("platform_breakdown", {})
+    critical_issues = data.get("critical_issues", [])
 
     # 배포 체크리스트 HTML (md 파일에서 로드)
     if checklist_items:
@@ -134,6 +136,85 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
             <td>{assignee}</td>
             <td class="text-center text-muted">{created}</td>
         </tr>"""
+
+    # 플랫폼별 비교 카드
+    platform_cards_html = ""
+    platform_bar_html = ""
+    total_all_platform = sum(p["total"] for p in platform_breakdown.values()) or 1
+    platform_icons = {"iOS": "\U0001F34E", "Android": "\U0001F916", "Web": "\U0001F310", "공통": "\u2699\uFE0F"}
+    platform_colors = {"iOS": "#555", "Android": "#3ddc84", "Web": "#0065ff", "공통": "#8777d9"}
+    for pname, pdata in platform_breakdown.items():
+        icon = platform_icons.get(pname, "")
+        high_cls = "metric-red" if pdata["high"] > 0 else "metric-green"
+        platform_cards_html += f"""
+        <div class="card">
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px">{icon} {pname}</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#6b7280">전체 이슈</span>
+            <span style="font-weight:700">{pdata['total']}건</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#6b7280">미해결</span>
+            <span style="font-weight:700;color:#f97316">{pdata['open']}건</span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="font-size:12px;color:#6b7280">High/Urgent</span>
+            <span class="{high_cls}" style="font-weight:700">{pdata['high']}건</span>
+          </div>
+        </div>"""
+        pct = round(pdata["total"] / total_all_platform * 100, 1)
+        color = platform_colors.get(pname, "#888")
+        platform_bar_html += f"""
+        <div style="display:flex;align-items:center;margin-bottom:8px">
+          <span style="width:80px;font-size:12px;color:#6b7280">{icon} {pname}</span>
+          <div style="flex:1;background:#e5e7eb;border-radius:4px;height:18px;overflow:hidden">
+            <div style="width:{pct}%;height:100%;background:{color};border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:11px;font-weight:700;color:#fff;min-width:30px">{pdata['total']}건</div>
+          </div>
+        </div>"""
+
+    # 크리티컬 이슈 테이블
+    critical_rows_html = ""
+    for bug in critical_issues[:15]:
+        identifier = bug.get("identifier", "")
+        title = bug.get("title", "")[:50]
+        priority = bug.get("priorityLabel", "")
+        state = bug.get("state", {}).get("name", "")
+        assignee = (bug.get("assignee") or {}).get("displayName") or "미지정"
+        url = bug.get("url", "#")
+        badge_cls = "badge-red" if priority == "Urgent" else "badge-orange"
+        state_cls = "badge-red" if state == "Todo" else "badge-yellow" if state == "In Progress" else "badge-blue"
+        critical_rows_html += f"""
+        <tr>
+          <td><a href="{url}" target="_blank" class="issue-link">{identifier}</a></td>
+          <td><a href="{url}" target="_blank" class="issue-link">{title}</a></td>
+          <td><span class="badge {badge_cls}">{priority}</span></td>
+          <td><span class="badge {state_cls}">{state}</span></td>
+          <td>{assignee}</td>
+        </tr>"""
+
+    # 배포 판정 (상세)
+    urgent_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "Urgent")
+    high_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "High")
+    if urgent_count == 0 and high_count == 0 and all(c["pass"] for c in exit_status):
+        verdict_text = "배포 가능"
+        verdict_cls = "status-ok"
+        verdict_icon = "\u2705"
+        verdict_detail = "모든 배포 기준이 충족되었습니다."
+    elif urgent_count > 0:
+        verdict_text = "배포 불가"
+        verdict_cls = "status-ng"
+        verdict_icon = "\u26D4"
+        verdict_detail = f"Urgent {urgent_count}건, High {high_count}건 미해결. 크리티컬 이슈 해결 후 재판정이 필요합니다."
+    elif high_count > 0:
+        verdict_text = "조건부 배포 가능"
+        verdict_cls = "status-warn"
+        verdict_icon = "\u26A0\uFE0F"
+        verdict_detail = f"High {high_count}건 미해결. 해당 이슈의 영향도 검토 후 배포 여부를 결정해야 합니다."
+    else:
+        verdict_text = "배포 불가"
+        verdict_cls = "status-ng"
+        verdict_icon = "\u274C"
+        verdict_detail = "일부 배포 기준이 미충족입니다."
 
     # 종료 기준 체크리스트
     criteria_rows = ""
@@ -278,6 +359,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   }}
   .status-ok {{ background: #dcfce7; color: #15803d; border: 2px solid #86efac; }}
   .status-ng {{ background: #fee2e2; color: #dc2626; border: 2px solid #fca5a5; }}
+  .status-warn {{ background: #fef9c3; color: #a16207; border: 2px solid #fde047; }}
 
   /* ── Issue link ── */
   .issue-link {{ color: #4338ca; }}
@@ -377,6 +459,52 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     </div>
   </div>
 
+  <!-- ── 배포 판정 ── -->
+  <div class="section">
+    <div class="section-title">배포 가능 여부 판정</div>
+    <div class="card">
+      <div class="deploy-status {verdict_cls}" style="font-size:20px">
+        {verdict_icon} {verdict_text}
+      </div>
+      <p style="text-align:center;font-size:13px;color:#6b7280;margin-top:12px">{verdict_detail}</p>
+    </div>
+  </div>
+
+  <!-- ── 플랫폼별 비교 ── -->
+  <div class="section">
+    <div class="section-title">플랫폼별 이슈 비교</div>
+    <div class="grid-4">
+      {platform_cards_html}
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:12px">플랫폼별 이슈 비율</div>
+      {platform_bar_html}
+    </div>
+  </div>
+
+  <!-- ── 크리티컬 이슈 상세 ── -->
+  <div class="section">
+    <div class="section-title">크리티컬 이슈 (Urgent / High 미해결 — {len(critical_issues)}건)</div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:90px">ID</th>
+              <th>제목</th>
+              <th style="width:90px">우선순위</th>
+              <th style="width:100px">상태</th>
+              <th style="width:100px">담당자</th>
+            </tr>
+          </thead>
+          <tbody>
+            {critical_rows_html if critical_rows_html else '<tr><td colspan="5" class="text-center text-muted" style="padding:20px">크리티컬 이슈 없음</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- ── 일별 추이 ── -->
   <div class="section">
     <div class="section-title">이슈 추이 (최근 14일)</div>
@@ -441,8 +569,8 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     <div class="grid-2">
       <div class="card">
         {criteria_rows if criteria_rows else '<p class="text-muted" style="text-align:center;padding:20px">기준 없음</p>'}
-        <div class="deploy-status {deploy_status_cls}">
-          {'✅ ' if all_pass else '❌ '}{deploy_status_text}
+        <div class="deploy-status {verdict_cls}">
+          {verdict_icon} {verdict_text}
         </div>
       </div>
       <div class="card">
