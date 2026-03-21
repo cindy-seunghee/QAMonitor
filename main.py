@@ -29,14 +29,30 @@ def run(config: dict) -> str:
     """QA매니저별 활성(In Progress) QA카드를 발견하고 Slack 메시지를 전송한다."""
     from src.qa_discoverer import (
         discover_qa_cards, get_active_cards, get_paused_cards,
-        prepare_qa_card_data, resolve_user_map,
+        prepare_qa_card_data, resolve_user_map, sync_views,
     )
     from src.slack_notifier import SlackNotifier
 
     print("─" * 50)
-    print("[1/3] QA매니저별 QA카드 현황 조회")
+    print("[1/4] QA매니저별 QA카드 현황 조회")
     cards_by_manager = discover_qa_cards(config)
 
+    # ── 뷰 자동 생성/삭제 ──
+    print("\n[2/4] 담당자별 Linear 뷰 동기화")
+    view_result = sync_views(cards_by_manager)
+    if view_result["created"]:
+        for v in view_result["created"]:
+            print(f"      ✓ 뷰 생성: {v}")
+    if view_result["deleted"]:
+        for v in view_result["deleted"]:
+            print(f"      ✓ 뷰 삭제: {v}")
+    if view_result["failed"]:
+        for f in view_result["failed"]:
+            print(f"      ✗ {f['action']} 실패 [{f['card']}]: {f['reason']}")
+    if not view_result["created"] and not view_result["deleted"] and not view_result["failed"]:
+        print("      변경 없음")
+
+    # ── 활성 카드 분석 + Slack 발송 ──
     slack_cfg = config.get("slack", {})
     channel = slack_cfg.get("summary_channel") or os.environ.get("SLACK_CHANNEL_ID", "")
     user_map = resolve_user_map(slack_cfg.get("user_map") or {})
@@ -52,13 +68,13 @@ def run(config: dict) -> str:
             continue
 
         for qa_card in active:
-            print(f"\n[2/3] {qa_card['identifier']}: {qa_card['title']}")
+            print(f"\n[3/4] {qa_card['identifier']}: {qa_card['title']}")
             data = prepare_qa_card_data(qa_card, config)
             last_dashboard_path = data["dashboard_path"]
             print(f"      하위이슈 {len(data['all_issues'])}건 | 대시보드: {data['dashboard_path']}")
 
             if channel:
-                print(f"[3/3] Slack 메시지 전송: {qa_card['identifier']}")
+                print(f"[4/4] Slack 메시지 전송: {qa_card['identifier']}")
                 notifier = SlackNotifier()
                 notifier.send_daily_report(
                     data=data,

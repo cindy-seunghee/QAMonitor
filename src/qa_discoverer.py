@@ -81,6 +81,57 @@ def get_paused_cards(cards: list[dict]) -> list[dict]:
     return [c for c in cards if c["qa_status"] == "중단"]
 
 
+VIEW_TARGET_STATES = ["Backlog", "Todo", "In Progress", "In Review"]
+
+
+def sync_views(cards_by_manager: dict[str, list[dict]]) -> dict:
+    """
+    QA카드 상태에 따라 뷰를 자동 생성/삭제한다.
+    - Backlog/Todo/In Progress/In Review → 뷰 생성 (이미 있으면 스킵)
+    - Done → 뷰 삭제 (없으면 스킵)
+
+    Returns: {"created": [...], "deleted": [...], "failed": [...]}
+    """
+    from tools.manage_linear_views import create_views_for_card, delete_views_for_card
+
+    all_cards = [c for cards in cards_by_manager.values() for c in cards]
+    # 중복 제거 (같은 카드가 여러 매니저에 걸릴 수 있음)
+    seen = set()
+    unique_cards = []
+    for c in all_cards:
+        if c["identifier"] not in seen:
+            seen.add(c["identifier"])
+            unique_cards.append(c)
+
+    created = []
+    deleted = []
+    failed = []
+
+    for card in unique_cards:
+        state = card["state"]["name"]
+        identifier = card["identifier"]
+
+        if state in VIEW_TARGET_STATES:
+            try:
+                result = create_views_for_card(identifier)
+                for name in result["created"]:
+                    created.append(f"{name} [{identifier}]")
+            except Exception as e:
+                failed.append({"card": identifier, "action": "생성", "reason": str(e)})
+
+        elif state == "Done":
+            try:
+                result = delete_views_for_card(identifier)
+                for name in result["success"]:
+                    deleted.append(name)
+                for item in result["failed"]:
+                    failed.append({"card": identifier, "action": "삭제", "reason": item["reason"]})
+            except Exception as e:
+                failed.append({"card": identifier, "action": "삭제", "reason": str(e)})
+
+    return {"created": created, "deleted": deleted, "failed": failed}
+
+
 def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
     """
     하나의 QA카드에 대해 하위 이슈 조회 → 분석 → 대시보드 생성까지 수행.
