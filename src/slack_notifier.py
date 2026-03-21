@@ -195,6 +195,15 @@ class SlackNotifier:
             project_link = project_name
         lines = f"*{project_link}* {phase_text}*진행 상황 ({today})*"
         lines += f"\n"
+
+        # 담당QA 태그 (QA카드 assignee)
+        qa_assignee = (qa_card.get("assignee") or qa_card.get("creator") or {})
+        qa_assignee_name = qa_assignee.get("displayName") or qa_assignee.get("name") or ""
+        if qa_assignee_name:
+            qa_slack_id = linear_name_to_slack.get(qa_assignee_name.lower(), "")
+            qa_mention = f"<@{qa_slack_id}>" if qa_slack_id else f"*{qa_assignee_name}*"
+            lines += f"\n*담당QA* : {qa_mention}"
+            lines += f"\n"
         tc_url = data.get("testcase_sheet_url", "")
         if tc_url and pct_text != "?":
             lines += f"\n{icon} *테스트 진행률* : <{tc_url}|*`{pct_text}`*>*%*"
