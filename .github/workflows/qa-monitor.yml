@@ -1,0 +1,71 @@
+name: QA Monitor Daily Report
+
+on:
+  # 매일 지정 시각에 실행 (UTC 기준, KST = UTC + 9)
+  # config.yaml user_map의 send_time과 맞춰야 합니다
+  schedule:
+    - cron: '0 6 * * 1-5'   # 평일 15:00 KST → Cindy
+    - cron: '0 7 * * 1-5'   # 평일 16:00 KST → Liana
+
+  # 수동 실행 (GitHub Actions 탭에서 "Run workflow" 버튼)
+  workflow_dispatch:
+    inputs:
+      run_for:
+        description: '특정 QAM만 실행 (비우면 전체)'
+        required: false
+        default: ''
+
+jobs:
+  cindy:
+    # 15:00 KST 스케줄 또는 수동 실행 시
+    if: github.event.schedule == '0 6 * * 1-5' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.run_for == 'Cindy' || github.event.inputs.run_for == ''))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        run: echo "$CONFIG_YAML" > config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+
+      - name: Run QA Monitor — Cindy
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: python main.py --run-for Cindy
+
+  liana:
+    # 16:00 KST 스케줄 또는 수동 실행 시
+    if: github.event.schedule == '0 7 * * 1-5' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.run_for == 'Liana' || github.event.inputs.run_for == ''))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        run: echo "$CONFIG_YAML" > config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+
+      - name: Run QA Monitor — Liana
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: python main.py --run-for Liana
