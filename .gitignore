@@ -17,8 +17,9 @@ env/
 dist/
 build/
 
-# 생성된 대시보드 (로컬 산출물)
+# 생성된 대시보드 및 HTML 파일 (로컬 산출물)
 output/
+*.html
 
 # macOS
 .DS_Store
