@@ -338,12 +338,49 @@ def run_single_card(config: dict, card_id: str) -> None:
     print(f"{card_id} 완료!")
 
 
+def delete_slack_message(msg_url: str) -> None:
+    """Slack 메시지 링크에서 채널ID와 timestamp를 추출하여 메시지를 삭제한다."""
+    import re
+    from src.slack_notifier import SlackNotifier
+
+    # URL 파싱: https://buzzvil.slack.com/archives/CV1STCM52/p1774113546901219
+    m = re.search(r"/archives/([A-Z0-9]+)/p(\d+)", msg_url)
+    if not m:
+        print(f"  ✗ 잘못된 Slack 메시지 링크: {msg_url}")
+        return
+
+    channel_id = m.group(1)
+    # Slack timestamp: p1774113546901219 → 1774113546.901219
+    raw_ts = m.group(2)
+    ts = raw_ts[:-6] + "." + raw_ts[-6:]
+
+    notifier = SlackNotifier()
+    try:
+        # 스레드 답글 먼저 삭제
+        replies = notifier.client.conversations_replies(channel=channel_id, ts=ts)
+        messages = replies.get("messages", [])
+        for msg in reversed(messages):
+            if msg["ts"] != ts:  # 부모 메시지 제외
+                try:
+                    notifier.client.chat_delete(channel=channel_id, ts=msg["ts"])
+                    print(f"  ✓ 스레드 답글 삭제: {msg['ts']}")
+                except Exception as e:
+                    print(f"  ⚠ 스레드 답글 삭제 실패: {e}")
+
+        # 부모 메시지 삭제
+        notifier.client.chat_delete(channel=channel_id, ts=ts)
+        print(f"  ✓ 메시지 삭제 완료: {channel_id}/{ts}")
+    except Exception as e:
+        print(f"  ✗ 메시지 삭제 실패: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="QA Monitor")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run-now", action="store_true", help="지금 바로 실행 (전체 요약)")
     group.add_argument("--run-for", metavar="NAME", help="특정 QAM 개인 메시지만 즉시 전송")
     group.add_argument("--run-card", metavar="CARD_ID", help="특정 QA카드만 실행 (예: SUP-1557)")
+    group.add_argument("--delete-msg", metavar="URL", help="봇이 보낸 Slack 메시지 삭제 (메시지 링크)")
     group.add_argument("--dashboard-only", action="store_true", help="대시보드만 생성")
     group.add_argument("--schedule", action="store_true", help="스케줄러 시작")
     group.add_argument("--test-slack", action="store_true", help="Slack 연결 테스트")
@@ -378,6 +415,9 @@ def main():
 
         elif args.run_card:
             run_single_card(config, args.run_card)  # 수동 테스트용이므로 공휴일 체크 안 함
+
+        elif args.delete_msg:
+            delete_slack_message(args.delete_msg)
 
         elif args.dashboard_only:
             from src.qa_discoverer import (
