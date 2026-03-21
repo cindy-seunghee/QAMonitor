@@ -248,11 +248,79 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
         print(f"{assignee_name} 메시지 전송 완료!")
 
 
+def run_single_card(config: dict, card_id: str) -> None:
+    """특정 QA카드 1개만 실행."""
+    from src.qa_discoverer import (
+        discover_qa_cards, prepare_qa_card_data,
+        resolve_user_map, sync_views,
+    )
+    from src.slack_notifier import SlackNotifier
+
+    print("─" * 50)
+    print(f"[단일 카드] {card_id}")
+
+    cards_by_manager = discover_qa_cards(config)
+
+    # 해당 카드 찾기
+    qa_card = None
+    card_manager = None
+    for manager, cards in cards_by_manager.items():
+        for c in cards:
+            if c["identifier"] == card_id:
+                qa_card = c
+                card_manager = manager
+                break
+        if qa_card:
+            break
+
+    if not qa_card:
+        print(f"  ✗ {card_id}를 찾을 수 없습니다.")
+        return
+
+    print(f"  매니저: {card_manager} | 상태: {qa_card['qa_status']}")
+
+    # 뷰 동기화 (해당 카드만)
+    sync_views({card_manager: [qa_card]})
+
+    slack_cfg = config.get("slack", {})
+    channel = slack_cfg.get("summary_channel") or os.environ.get("SLACK_CHANNEL_ID", "")
+    user_map = resolve_user_map(slack_cfg.get("user_map") or {})
+
+    # 뷰 URL 가져오기
+    from tools.manage_linear_views import get_existing_views
+    existing = get_existing_views(card_id)
+    view_urls = {}
+    for name, v in existing.items():
+        slug = v.get("slugId") or v["id"]
+        url = f"https://linear.app/buzzvil/view/{slug}"
+        if "전체" in name:
+            view_urls["total"] = url
+        elif "내" in name:
+            view_urls["my"] = url
+
+    data = prepare_qa_card_data(qa_card, config)
+    data["view_urls"] = view_urls
+
+    if channel:
+        notifier = SlackNotifier()
+        notifier.send_daily_report(
+            data=data,
+            channel=channel,
+            user_map=user_map,
+            template_path=slack_cfg.get("template_path", "slack_template.md"),
+            dashboard_path=data.get("dashboard_path"),
+        )
+
+    print("─" * 50)
+    print(f"{card_id} 완료!")
+
+
 def main():
     parser = argparse.ArgumentParser(description="QA Monitor")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run-now", action="store_true", help="지금 바로 실행 (전체 요약)")
     group.add_argument("--run-for", metavar="NAME", help="특정 QAM 개인 메시지만 즉시 전송")
+    group.add_argument("--run-card", metavar="CARD_ID", help="특정 QA카드만 실행 (예: SUP-1557)")
     group.add_argument("--dashboard-only", action="store_true", help="대시보드만 생성")
     group.add_argument("--schedule", action="store_true", help="스케줄러 시작")
     group.add_argument("--test-slack", action="store_true", help="Slack 연결 테스트")
@@ -278,6 +346,9 @@ def main():
 
         elif args.run_for:
             run_for_assignee(config, args.run_for)
+
+        elif args.run_card:
+            run_single_card(config, args.run_card)
 
         elif args.dashboard_only:
             from src.qa_discoverer import (

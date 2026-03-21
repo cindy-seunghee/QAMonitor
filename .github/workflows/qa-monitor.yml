@@ -14,11 +14,44 @@ on:
         description: '특정 QAM만 실행 (비우면 전체)'
         required: false
         default: ''
+      run_card:
+        description: '특정 QA카드만 실행 (예: SUP-1557)'
+        required: false
+        default: ''
 
 jobs:
+  # 특정 카드 테스트 (수동 실행 전용)
+  single-card:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_card != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        run: echo "$CONFIG_YAML" > config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+
+      - name: Run QA Monitor — Single Card
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: python main.py --run-card ${{ github.event.inputs.run_card }}
+
+  # Cindy (스케줄 또는 수동)
   cindy:
-    # 15:00 KST 스케줄 또는 수동 실행 시
-    if: github.event.schedule == '0 6 * * 1-5' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.run_for == 'Cindy' || github.event.inputs.run_for == ''))
+    if: |
+      github.event.schedule == '0 6 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_card == '' && (github.event.inputs.run_for == 'Cindy' || github.event.inputs.run_for == ''))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,9 +76,11 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: python main.py --run-for Cindy
 
+  # Liana (스케줄 또는 수동)
   liana:
-    # 16:00 KST 스케줄 또는 수동 실행 시
-    if: github.event.schedule == '0 7 * * 1-5' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.run_for == 'Liana' || github.event.inputs.run_for == ''))
+    if: |
+      github.event.schedule == '0 7 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_card == '' && (github.event.inputs.run_for == 'Liana' || github.event.inputs.run_for == ''))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
