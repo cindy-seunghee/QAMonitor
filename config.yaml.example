@@ -25,6 +25,9 @@ linear:
     - "Cancelled"
     - "N/A"
 
+  # 테스트 진행률 — QA카드 Attachments의 구글시트에서 읽을 셀 위치
+  test_progress_cell: "K14"       # 기본값: K14
+
   # 버그/이슈 카드 식별
   bug_labels:                     # 버그를 구분하는 라벨 이름 목록
     - "Bug"

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import re
+import requests
+
 
 # QA 카드 상태 분류
 QA_STATUS_MAP = {
@@ -81,6 +86,79 @@ def get_paused_cards(cards: list[dict]) -> list[dict]:
     return [c for c in cards if c["qa_status"] == "중단"]
 
 
+# ── 구글시트 테스트 진행률 ────────────────────────────────────────────────
+
+def _find_testcase_sheet_url(qa_card: dict) -> str | None:
+    """QA카드 Attachments에서 '테스트케이스' 구글시트 URL을 찾는다."""
+    attachments = qa_card.get("attachments", {}).get("nodes", [])
+    for att in attachments:
+        title = (att.get("title") or "").strip()
+        url = att.get("url") or ""
+        if "테스트케이스" in title and "docs.google.com/spreadsheets" in url:
+            return url
+    return None
+
+
+def _parse_sheet_id_and_gid(url: str) -> tuple[str, str]:
+    """구글시트 URL에서 spreadsheet ID와 gid를 추출한다."""
+    # ID: /d/{sheet_id}/
+    m = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
+    sheet_id = m.group(1) if m else ""
+    # gid: gid=12345
+    m2 = re.search(r"gid=(\d+)", url)
+    gid = m2.group(1) if m2 else "0"
+    return sheet_id, gid
+
+
+def _cell_to_index(cell: str) -> tuple[int, int]:
+    """'K14' → (row=13, col=10) 0-based index"""
+    m = re.match(r"([A-Z]+)(\d+)", cell.upper())
+    if not m:
+        return 0, 0
+    col_str, row_str = m.group(1), m.group(2)
+    col = 0
+    for c in col_str:
+        col = col * 26 + (ord(c) - ord("A"))
+    return int(row_str) - 1, col
+
+
+def fetch_test_progress(qa_card: dict, cell: str = "K14") -> float | None:
+    """
+    QA카드의 테스트케이스 구글시트에서 진행률(%)을 읽어온다.
+    Returns: 진행률 (예: 58.4) 또는 None (읽기 실패)
+    """
+    url = _find_testcase_sheet_url(qa_card)
+    if not url:
+        return None
+
+    sheet_id, gid = _parse_sheet_id_and_gid(url)
+    if not sheet_id:
+        return None
+
+    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    try:
+        resp = requests.get(csv_url, timeout=15)
+        if not resp.ok:
+            print(f"      ⚠ 구글시트 접근 실패: HTTP {resp.status_code}")
+            return None
+
+        row_idx, col_idx = _cell_to_index(cell)
+        reader = csv.reader(io.StringIO(resp.text))
+        for i, row in enumerate(reader):
+            if i == row_idx:
+                if col_idx < len(row):
+                    raw = row[col_idx].strip().replace("%", "")
+                    try:
+                        return float(raw)
+                    except ValueError:
+                        print(f"      ⚠ 진행률 파싱 실패: '{row[col_idx]}'")
+                        return None
+                break
+    except Exception as e:
+        print(f"      ⚠ 구글시트 읽기 오류: {e}")
+    return None
+
+
 VIEW_TARGET_STATES = ["Backlog", "Todo", "In Progress", "In Review"]
 
 
@@ -147,6 +225,21 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
     data = analyze(issues, config)
     data["project_name"] = qa_card["title"]
     data["qa_card"] = qa_card
+
+    # 구글시트에서 테스트 진행률 읽기
+    progress_cell = config.get("linear", {}).get("test_progress_cell", "K14")
+    sheet_progress = fetch_test_progress(qa_card, cell=progress_cell)
+    if sheet_progress is not None:
+        data["progress"]["pct"] = sheet_progress
+        data["progress"]["source"] = "google_sheet"
+        print(f"      테스트 진행률 (구글시트): {sheet_progress}%")
+    else:
+        data["progress"]["source"] = "linear"
+
+    # 테스트케이스 시트 URL도 저장
+    tc_url = _find_testcase_sheet_url(qa_card)
+    if tc_url:
+        data["testcase_sheet_url"] = tc_url
 
     dash_cfg = config.get("dashboard", {})
     checklist_path = dash_cfg.get("checklist_path", "deployment_checklist.md")
