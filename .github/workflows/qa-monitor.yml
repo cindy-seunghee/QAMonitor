@@ -47,6 +47,14 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: python main.py --run-card ${{ github.event.inputs.run_card }}
 
+      - name: Upload Dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-dashboard
+          path: output/
+          retention-days: 30
+
   # Cindy (스케줄 또는 수동)
   cindy:
     if: |
@@ -76,6 +84,14 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: python main.py --run-for Cindy
 
+      - name: Upload Dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-dashboard-cindy
+          path: output/
+          retention-days: 30
+
   # Liana (스케줄 또는 수동)
   liana:
     if: |
@@ -104,3 +120,11 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: python main.py --run-for Liana
+
+      - name: Upload Dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-dashboard-liana
+          path: output/
+          retention-days: 30
