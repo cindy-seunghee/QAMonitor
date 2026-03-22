@@ -11,7 +11,7 @@ format:     ◦ Medium : {medium_count}건 {medium_if_exists}
 format:     ◦ Low : {low_count}건 {low_if_exists}
 format: • *대시보드* ({dashboard_link})
 format: {developer_mentions}
-format: 미수정 결함을 확인해주세요 :mulgae_sad:
+format: 미해결 결함을 확인해주세요 :mulgae_sad:
 
 # 스레드: 담당자별 현황
 sections: assignee_detail

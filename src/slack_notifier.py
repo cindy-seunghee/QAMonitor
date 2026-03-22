@@ -221,9 +221,11 @@ class SlackNotifier:
         if mention_text:
             lines += "\n"
             lines += f"\n{mention_text}"
-            lines += "\n>  미수정 결함을 확인해주세요 :mulgae_sad:"
-        if my_url:
-            lines += f"\n> \u2022 <{my_url}|내 이슈 보러가기>"
+            lines += "\n>  미해결 결함을 확인해주세요 :mulgae_sad:"
+            if my_url:
+                lines += f"\n> \u2022 <{my_url}|내 이슈 보러가기>"
+        else:
+            lines += "\n\n미해결 잔여 이슈가 없어요 :among_thumbs_up:"
 
         blocks = [
             {
