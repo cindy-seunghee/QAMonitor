@@ -663,6 +663,76 @@ class SlackNotifier:
         except SlackApiError as e:
             print(f"  ✗ 에러 DM 전송 실패: {e.response['error']}")
 
+    # ── TC시트 권한 안내 DM ──────────────────────────────────────────────
+
+    def send_sheet_access_dm(self, slack_id: str, qa_card_title: str) -> None:
+        """TC시트 접근 권한이 없을 때 QA카드 assignee에게 안내 DM을 보낸다."""
+        SA_EMAIL = "qa-monitor-bot@qa-monitor-bot.iam.gserviceaccount.com"
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "\U0001f4cb TC시트 접근 권한 안내", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*{qa_card_title}* 카드의 TC시트에 접근할 수 없어요 \U0001f511\n\n"
+                        f"QA Monitor봇이 진행률을 읽으려면 TC시트 파일에 아래 계정을 *뷰어*로 추가해주세요:\n\n"
+                        f"`{SA_EMAIL}`\n\n"
+                        f"_구글시트 > 공유 > 위 이메일 추가 > 뷰어 권한_"
+                    ),
+                },
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"TC시트 접근 권한 안내: {qa_card_title}",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  \u2713 TC시트 권한 안내 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  \u2717 TC시트 권한 안내 DM 전송 실패: {e.response['error']}")
+
+    # ── TC시트 미첨부 안내 DM ────────────────────────────────────────────
+
+    def send_sheet_missing_dm(self, slack_id: str, qa_card_title: str, card_url: str = "") -> None:
+        """TC시트 링크가 QA카드에 첨부되지 않았을 때 assignee에게 안내 DM을 보낸다."""
+        card_link = f"<{card_url}|{qa_card_title}>" if card_url else f"*{qa_card_title}*"
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "\U0001f4ce TC시트 첨부 안내", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"{card_link} 카드에 테스트케이스 시트 링크가 없어요 \U0001f440\n\n"
+                        f"QA Monitor봇이 진행률을 읽으려면 QA카드 Attachments에 TC시트를 첨부해주세요.\n\n"
+                        f"_Linear QA카드 > Attachments > 구글시트 링크 추가_\n"
+                        f"_첨부 이름에 `테스트케이스` 또는 `testcase`를 포함해주세요._"
+                    ),
+                },
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"TC시트 첨부 안내: {qa_card_title}",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  \u2713 TC시트 미첨부 안내 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  \u2717 TC시트 미첨부 안내 DM 전송 실패: {e.response['error']}")
+
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 
     def test_connection(self) -> bool:

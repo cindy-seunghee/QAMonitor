@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import csv
-import io
+import json
+import os
 import re
-import requests
+
+import gspread
+from google.oauth2.service_account import Credentials
 
 
 # QA 카드 상태 분류
@@ -88,14 +90,17 @@ def get_paused_cards(cards: list[dict]) -> list[dict]:
 
 # ── 구글시트 테스트 진행률 ────────────────────────────────────────────────
 
+_TC_KEYWORDS = ["테스트케이스", "테스트 케이스", "testcase", "test case"]
+
 def _find_testcase_sheet_url(qa_card: dict) -> str | None:
-    """QA카드 Attachments에서 '테스트케이스' 구글시트 URL을 찾는다."""
+    """QA카드 Attachments에서 테스트케이스 구글시트 URL을 찾는다."""
     attachments = qa_card.get("attachments", {}).get("nodes", [])
     for att in attachments:
-        title = (att.get("title") or "").strip()
+        title = (att.get("title") or "").strip().lower()
         url = att.get("url") or ""
-        if "테스트케이스" in title and "docs.google.com/spreadsheets" in url:
-            return url
+        if "docs.google.com/spreadsheets" in url:
+            if any(kw in title for kw in _TC_KEYWORDS):
+                return url
     return None
 
 
@@ -110,25 +115,81 @@ def _parse_sheet_id_and_gid(url: str) -> tuple[str, str]:
     return sheet_id, gid
 
 
-def _cell_to_index(cell: str) -> tuple[int, int]:
-    """'K14' → (row=13, col=10) 0-based index"""
-    m = re.match(r"([A-Z]+)(\d+)", cell.upper())
-    if not m:
-        return 0, 0
-    col_str, row_str = m.group(1), m.group(2)
-    col = 0
-    for c in col_str:
-        col = col * 26 + (ord(c) - ord("A"))
-    return int(row_str) - 1, col
+def _get_gspread_client() -> gspread.Client:
+    """서비스 계정으로 인증된 gspread 클라이언트를 반환한다."""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+
+    # 환경변수에 JSON 문자열이 있으면 사용 (GitHub Actions)
+    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
+    if sa_json:
+        info = json.loads(sa_json)
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
+    else:
+        # 로컬: JSON 파일 경로
+        key_path = os.environ.get("GOOGLE_SA_KEY_PATH", "qa-monitor-bot-38328028056e.json")
+        creds = Credentials.from_service_account_file(key_path, scopes=scopes)
+
+    return gspread.authorize(creds)
 
 
-def fetch_test_progress(qa_card: dict, cell: str = "K14") -> dict:
+def _parse_progress_value(raw: str | None, url: str, label: str = "") -> dict:
+    """진행률 셀 값을 파싱하여 결과 dict를 반환한다."""
+    if raw is None:
+        return {"value": None, "error": f"{label} 셀이 비어있음", "sheet_url": url}
+    raw = raw.strip().replace("%", "")
+    try:
+        return {"value": float(raw), "error": None, "sheet_url": url}
+    except ValueError:
+        return {"value": None, "error": f"진행률 파싱 실패: '{raw}'", "sheet_url": url}
+
+
+def _find_progress_by_stats_table(
+    worksheet, section_header: str, url: str,
+) -> dict | None:
+    """
+    커스텀 매체사 TC 템플릿용: '표지' 탭에서 통계 테이블 기반으로 진행률을 찾는다.
+    1) section_header ('전체 테스트 통계' 또는 '리그레션 테스트 통계') 셀을 찾음
+    2) 바로 아래 헤더행에서 '진행률' 열 위치를 찾음
+    3) 헤더행 아래로 내려가며 첫 번째 '전체' 행을 찾음
+    4) 해당 행의 진행률 열 값을 반환
+    """
+    header_cell = worksheet.find(section_header)
+    if not header_cell:
+        return None
+
+    header_row = header_cell.row + 1
+    row_vals = worksheet.row_values(header_row)
+
+    progress_col = None
+    for idx, val in enumerate(row_vals, start=1):
+        if val and val.strip() == "진행률":
+            progress_col = idx
+            break
+    if not progress_col:
+        return None
+
+    # 헤더행 아래로 내려가며 '전체' 행 찾기 (최대 20행)
+    for r in range(header_row + 1, header_row + 21):
+        cell_val = worksheet.cell(r, header_cell.col).value
+        if cell_val and cell_val.strip() == "전체":
+            raw = worksheet.cell(r, progress_col).value
+            return _parse_progress_value(raw, url, f"{section_header} > 전체 > 진행률")
+
+    return None
+
+
+def fetch_test_progress(qa_card: dict, test_phase: str = "", cell: str = "K14") -> dict:
     """
     QA카드의 테스트케이스 구글시트에서 진행률(%)을 읽어온다.
+    서비스 계정 인증으로 비공개 시트도 접근 가능.
+
+    탐색 전략:
+      1) '현재 진행률' 텍스트 → 우측 셀 (일반 TC 템플릿)
+      2) 통계 테이블 기반 (커스텀 매체사 TC 템플릿 — '표지' 탭)
+         - 통합테스트: '전체 테스트 통계' → '전체' 행 → '진행률' 열
+         - 리그레션테스트: '리그레션 테스트 통계' → '전체' 행 → '진행률' 열
+
     Returns: {"value": float|None, "error": str|None, "sheet_url": str|None}
-      - 성공: {"value": 58.4, "error": None, ...}
-      - 시트 없음: {"value": None, "error": None, ...}
-      - 접근 불가: {"value": None, "error": "시트 접근 권한 필요 (비공개)", ...}
     """
     url = _find_testcase_sheet_url(qa_card)
     if not url:
@@ -138,31 +199,49 @@ def fetch_test_progress(qa_card: dict, cell: str = "K14") -> dict:
     if not sheet_id:
         return {"value": None, "error": "시트 URL 파싱 실패", "sheet_url": url}
 
-    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
     try:
-        resp = requests.get(csv_url, timeout=15)
-        if resp.status_code in (401, 403):
-            print(f"      ⚠ 구글시트 접근 불가 (비공개)")
-            return {"value": None, "error": "시트 접근 권한 필요 (비공개). 링크 공유 설정을 확인해주세요.", "sheet_url": url}
-        if not resp.ok:
-            print(f"      ⚠ 구글시트 접근 실패: HTTP {resp.status_code}")
-            return {"value": None, "error": f"HTTP {resp.status_code}", "sheet_url": url}
+        gc = _get_gspread_client()
+        spreadsheet = gc.open_by_key(sheet_id)
 
-        row_idx, col_idx = _cell_to_index(cell)
-        reader = csv.reader(io.StringIO(resp.text))
-        for i, row in enumerate(reader):
-            if i == row_idx:
-                if col_idx < len(row):
-                    raw = row[col_idx].strip().replace("%", "")
-                    try:
-                        return {"value": float(raw), "error": None, "sheet_url": url}
-                    except ValueError:
-                        return {"value": None, "error": f"진행률 파싱 실패: '{row[col_idx]}'", "sheet_url": url}
+        # gid로 워크시트 찾기
+        worksheet = None
+        for ws in spreadsheet.worksheets():
+            if str(ws.id) == gid:
+                worksheet = ws
                 break
-    except Exception as e:
-        print(f"      ⚠ 구글시트 읽기 오류: {e}")
+        if not worksheet:
+            worksheet = spreadsheet.sheet1
+
+        is_product_qa = "Product QA" in spreadsheet.title
+
+        if is_product_qa:
+            # Product QA 시트: '현재 진행률' 텍스트 → 우측 셀
+            found = worksheet.find("현재 진행률")
+            if found:
+                raw = worksheet.cell(found.row, found.col + 1).value
+                return _parse_progress_value(raw, url, "현재 진행률 우측")
+            return {"value": None, "error": "'현재 진행률' 셀을 찾을 수 없음", "sheet_url": url}
+        else:
+            # 커스텀 매체사 시트: 표지 탭 통계 테이블 기반
+            section = "리그레션 테스트 통계" if test_phase == "리그레션테스트" else "전체 테스트 통계"
+            result = _find_progress_by_stats_table(worksheet, section, url)
+            if result:
+                return result
+            return {"value": None, "error": f"'{section}' 통계 테이블을 찾을 수 없음", "sheet_url": url}
+
+    except PermissionError:
+        print(f"      ⚠ 구글시트 접근 불가 (권한 없음)")
+        return {"value": None, "error": "시트 접근 권한 필요. 서비스 계정에 시트를 공유해주세요.", "sheet_url": url}
+    except gspread.exceptions.APIError as e:
+        status = e.response.status_code
+        if status in (403, 404):
+            print(f"      ⚠ 구글시트 접근 불가 (권한 없음)")
+            return {"value": None, "error": "시트 접근 권한 필요. 서비스 계정에 시트를 공유해주세요.", "sheet_url": url}
+        print(f"      ⚠ 구글시트 API 오류: {e}")
         return {"value": None, "error": str(e), "sheet_url": url}
-    return {"value": None, "error": "셀을 찾을 수 없음", "sheet_url": url}
+    except Exception as e:
+        print(f"      ⚠ 구글시트 읽기 오류: {type(e).__name__}: {e}")
+        return {"value": None, "error": str(e) or type(e).__name__, "sheet_url": url}
 
 
 # ── QA카드 Description 파싱 ──────────────────────────────────────────────
@@ -474,7 +553,7 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
         progress_cell = linear_cfg.get("regression_progress_cell", "L14")
     else:
         progress_cell = linear_cfg.get("test_progress_cell", "K14")
-    sheet_result = fetch_test_progress(qa_card, cell=progress_cell)
+    sheet_result = fetch_test_progress(qa_card, test_phase=test_phase, cell=progress_cell)
 
     if sheet_result["value"] is not None:
         data["progress"]["pct"] = sheet_result["value"]

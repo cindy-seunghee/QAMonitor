@@ -3,6 +3,10 @@
 *.env
 .env.*
 
+# Google 서비스 계정 키
+*-*.json
+!package*.json
+
 # 실제 값이 담긴 설정 파일 (config.yaml.example 을 복사해서 사용)
 config.yaml
 

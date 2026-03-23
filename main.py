@@ -181,16 +181,40 @@ def run(config: dict) -> str:
                     except Exception as e:
                         print(f"  ⚠ 권고사항 DM 실패: {e}")
 
-                # 시트 접근 오류 DM
-                progress_error = data.get("progress", {}).get("error")
-                if progress_error:
+            # TC시트 안내 DM → QA카드 assignee에게 발송
+            progress_error = data.get("progress", {}).get("error", "")
+            sheet_url = data.get("testcase_sheet_url")
+            need_access_dm = "권한" in progress_error or "접근" in progress_error
+            need_missing_dm = not sheet_url and data.get("progress", {}).get("source") != "google_sheet"
+
+            if need_access_dm or need_missing_dm:
+                qa_assignee = (qa_card.get("assignee") or qa_card.get("creator") or {})
+                assignee_name = (qa_assignee.get("displayName") or qa_assignee.get("name") or "").lower()
+                assignee_slack_id = None
+                for uname, ucfg in user_map.items():
+                    if isinstance(ucfg, dict):
+                        ln = (ucfg.get("linear_name") or "").lower()
+                        if ln and ln == assignee_name:
+                            assignee_slack_id = ucfg.get("slack_id")
+                            break
+                if assignee_slack_id:
                     try:
-                        notifier.send_error_dm(slack_id, [{
-                            "step": f"테스트 진행률 ({card_id})",
-                            "detail": progress_error,
-                        }])
+                        if not notifier:
+                            notifier = SlackNotifier()
+                        if need_access_dm:
+                            notifier.send_sheet_access_dm(
+                                slack_id=assignee_slack_id,
+                                qa_card_title=qa_card["title"],
+                            )
+                        else:
+                            card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+                            notifier.send_sheet_missing_dm(
+                                slack_id=assignee_slack_id,
+                                qa_card_title=qa_card["title"],
+                                card_url=card_url,
+                            )
                     except Exception as e:
-                        print(f"  ⚠ 시트 오류 DM 실패: {e}")
+                        print(f"  ⚠ TC시트 안내 DM 실패: {e}")
 
     # ── 에러 DM 발송 ──
     _notify_errors(config, errors)
