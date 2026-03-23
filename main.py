@@ -201,13 +201,14 @@ def run(config: dict) -> str:
                     try:
                         if not notifier:
                             notifier = SlackNotifier()
+                        card_url = f"https://linear.app/buzzvil/issue/{card_id}"
                         if need_access_dm:
                             notifier.send_sheet_access_dm(
                                 slack_id=assignee_slack_id,
                                 qa_card_title=qa_card["title"],
+                                card_url=card_url,
                             )
                         else:
-                            card_url = f"https://linear.app/buzzvil/issue/{card_id}"
                             notifier.send_sheet_missing_dm(
                                 slack_id=assignee_slack_id,
                                 qa_card_title=qa_card["title"],

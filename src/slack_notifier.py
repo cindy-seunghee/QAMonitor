@@ -665,9 +665,10 @@ class SlackNotifier:
 
     # ── TC시트 권한 안내 DM ──────────────────────────────────────────────
 
-    def send_sheet_access_dm(self, slack_id: str, qa_card_title: str) -> None:
+    def send_sheet_access_dm(self, slack_id: str, qa_card_title: str, card_url: str = "") -> None:
         """TC시트 접근 권한이 없을 때 QA카드 assignee에게 안내 DM을 보낸다."""
         SA_EMAIL = "qa-monitor-bot@qa-monitor-bot.iam.gserviceaccount.com"
+        card_link = f"<{card_url}|{qa_card_title}>" if card_url else f"*{qa_card_title}*"
         blocks = [
             {
                 "type": "header",
@@ -678,7 +679,7 @@ class SlackNotifier:
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"*{qa_card_title}* 카드의 TC시트에 접근할 수 없어요 \U0001f511\n\n"
+                        f"{card_link} 카드의 TC시트에 접근할 수 없어요 \U0001f511\n\n"
                         f"QA Monitor봇이 진행률을 읽으려면 TC시트 파일에 아래 계정을 *뷰어*로 추가해주세요:\n\n"
                         f"`{SA_EMAIL}`\n\n"
                         f"_구글시트 > 공유 > 위 이메일 추가 > 뷰어 권한_"
