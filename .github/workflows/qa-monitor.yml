@@ -46,6 +46,7 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          BUZZ_HTML_TOKEN: ${{ secrets.BUZZ_HTML_TOKEN }}
         run: python main.py --run-card ${{ github.event.inputs.run_card }}
 
       - name: Upload Dashboard
@@ -84,6 +85,7 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          BUZZ_HTML_TOKEN: ${{ secrets.BUZZ_HTML_TOKEN }}
         run: python main.py --run-for Cindy
 
       - name: Upload Dashboard
@@ -122,6 +124,7 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          BUZZ_HTML_TOKEN: ${{ secrets.BUZZ_HTML_TOKEN }}
         run: python main.py --run-for Liana
 
       - name: Upload Dashboard
