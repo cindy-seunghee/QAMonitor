@@ -553,7 +553,7 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
         progress_cell = linear_cfg.get("regression_progress_cell", "L14")
     else:
         progress_cell = linear_cfg.get("test_progress_cell", "K14")
-    sheet_result = fetch_test_progress(qa_card, test_phase=test_phase, cell=progress_cell)
+    sheet_result = fetch_test_progress(qa_card, test_phase=test_phases["current_phase"], cell=progress_cell)
 
     if sheet_result["value"] is not None:
         data["progress"]["pct"] = sheet_result["value"]

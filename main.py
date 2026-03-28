@@ -134,6 +134,13 @@ def run(config: dict) -> str:
                     continue
 
                 last_dashboard_path = data["dashboard_path"]
+                # buzz-html 업로드
+                from src.html_uploader import upload_dashboard
+                dashboard_url = upload_dashboard(
+                    data["dashboard_path"],
+                    filename=f"qa_dashboard_{card_id}.html",
+                )
+                data["dashboard_url"] = dashboard_url
                 # 뷰 URL 연결
                 card_view_urls = view_result.get("view_urls", {}).get(card_id, {})
                 data["view_urls"] = card_view_urls
@@ -144,37 +151,37 @@ def run(config: dict) -> str:
                 errors.append({"step": f"데이터 준비 ({card_id})", "detail": str(e)})
                 continue
 
-            if channel:
+            # 매니저 slack_id로 DM 발송
+            manager_cfg = user_map.get(manager_name, {})
+            manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+            if manager_slack_id:
                 try:
-                    print(f"[4/4] Slack 메시지 전송: {card_id}")
+                    print(f"[4/4] Slack DM 전송: {card_id} → {manager_name}")
                     notifier = SlackNotifier()
                     notifier.send_daily_report(
                         data=data,
-                        channel=channel,
+                        channel=manager_slack_id,
                         user_map=user_map,
                         template_path=slack_cfg.get("template_path", "slack_template.md"),
                         dashboard_path=data.get("dashboard_path"),
                     )
                 except Exception as e:
-                    msg = f"{card_id} Slack 전송 실패: {e}"
+                    msg = f"{card_id} Slack DM 전송 실패: {e}"
                     print(f"  ✗ {msg}")
-                    errors.append({"step": f"Slack 전송 ({card_id})", "detail": str(e)})
+                    errors.append({"step": f"Slack DM ({card_id})", "detail": str(e)})
             else:
-                print("      ⚠ Slack 채널 미설정 — 전송 건너뜀")
+                print(f"      ⚠ {manager_name} slack_id 미설정 — 전송 건너뜀")
 
-            # ── QA매니저 DM: 권고사항 + 시트 접근 오류 알림 ──
-            manager_cfg = user_map.get(manager_name, {})
-            slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
-            if slack_id:
+            # ── QA매니저 DM: 권고사항 ──
+            if manager_slack_id:
                 if not notifier:
                     notifier = SlackNotifier()
 
-                # 권고사항 DM
                 recommendations = data.get("recommendations")
                 if recommendations:
                     try:
                         notifier.send_recommendation_dm(
-                            slack_id=slack_id,
+                            slack_id=manager_slack_id,
                             qa_card_title=f"{card_id}: {qa_card['title']}",
                             recommendations=recommendations,
                         )
@@ -349,15 +356,28 @@ def run_single_card(config: dict, card_id: str) -> None:
     data = prepare_qa_card_data(qa_card, config)
     data["view_urls"] = view_urls
 
-    if channel:
+    # buzz-html 업로드
+    from src.html_uploader import upload_dashboard
+    dashboard_url = upload_dashboard(
+        data["dashboard_path"],
+        filename=f"qa_dashboard_{card_id}.html",
+    )
+    data["dashboard_url"] = dashboard_url
+
+    # 매니저 slack_id로 DM 발송
+    manager_cfg = user_map.get(card_manager, {})
+    manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+    if manager_slack_id:
         notifier = SlackNotifier()
         notifier.send_daily_report(
             data=data,
-            channel=channel,
+            channel=manager_slack_id,
             user_map=user_map,
             template_path=slack_cfg.get("template_path", "slack_template.md"),
             dashboard_path=data.get("dashboard_path"),
         )
+    else:
+        print(f"      ⚠ {card_manager} slack_id 미설정 — 전송 건너뜀")
 
     print("─" * 50)
     print(f"{card_id} 완료!")

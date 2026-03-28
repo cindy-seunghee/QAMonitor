@@ -98,9 +98,12 @@ class SlackNotifier:
         if not thread_ts:
             return
 
-        # 2) 대시보드 파일 업로드 (스레드에 첨부)
-        if dashboard_path:
-            self._upload_file(channel, thread_ts, dashboard_path)
+        # 2) 대시보드 업로드
+        dashboard_url = data.get("dashboard_url")
+        if dashboard_url:
+            link_text = ":mulgae_computer: <{url}|QA 대시보드 보기>".format(url=dashboard_url)
+            link_blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": link_text}}]
+            self._post_thread(channel, thread_ts, link_blocks, text=link_text)
 
     # ── 메인 메시지 빌더 (새 양식) ──────────────────────────────────────────
 
@@ -153,7 +156,6 @@ class SlackNotifier:
         # 대시보드 링크
         dash_text = f"`{dashboard_path}`" if dashboard_path else "생성 안 됨"
 
-        # 잔여 이슈가 있는 개발자만 멘션
         # user_map 키(Liana) → linear_name(liana.kim) 역매핑 생성
         linear_name_to_slack: dict[str, str] = {}
         for uname, ucfg in user_map.items():
@@ -164,22 +166,6 @@ class SlackNotifier:
                     linear_name_to_slack[ln] = sid
                 if sid:
                     linear_name_to_slack[uname.lower()] = sid
-
-        mentions = []
-        for name, info in by_assignee.items():
-            if len(info.get("open_bugs", [])) > 0:
-                # 1) user_map 키로 직접 매칭
-                uid_or_cfg = user_map.get(name, {})
-                slack_id = uid_or_cfg.get("slack_id") if isinstance(uid_or_cfg, dict) else uid_or_cfg
-                # 2) linear_name 역매핑으로 매칭
-                if not slack_id:
-                    slack_id = linear_name_to_slack.get(name.lower(), "")
-                if slack_id:
-                    mentions.append(f"<@{slack_id}>")
-                else:
-                    mentions.append(f"*{name}*")
-
-        mention_text = ", ".join(mentions) if mentions else ""
 
         # 메시지 조립
         phase_text = f"*`{test_phase}`* " if test_phase else ""
@@ -210,7 +196,6 @@ class SlackNotifier:
         else:
             lines += f"\n{icon} *테스트 진행률* : *`{pct_text}`%*"
         total_url = view_urls.get("total", "")
-        my_url = view_urls.get("my", "")
 
         if total_url:
             lines += f"\n> \u2022 *잔여 이슈* : <{total_url}|*{open_bug_count}건*>"
@@ -218,13 +203,7 @@ class SlackNotifier:
             lines += f"\n> \u2022 *잔여 이슈* : *{open_bug_count}건*"
         if priority_lines:
             lines += priority_lines.replace("\n    ", "\n>     ")
-        if mention_text:
-            lines += "\n"
-            lines += f"\n{mention_text}"
-            lines += "\n>  미해결 결함을 확인해주세요 :mulgae_sad:"
-            if my_url:
-                lines += f"\n> \u2022 <{my_url}|내 이슈 보러가기>"
-        else:
+        if open_bug_count == 0:
             lines += "\n\n미해결 잔여 이슈가 없어요 :among_thumbs_up:"
 
         blocks = [
