@@ -264,11 +264,13 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
         return
 
     slack_cfg = config.get("slack", {})
-    channel = slack_cfg.get("summary_channel") or os.environ.get("SLACK_CHANNEL_ID", "")
     user_map = resolve_user_map(slack_cfg.get("user_map") or {})
 
-    if not channel:
-        print("      ⚠ Slack 채널 미설정")
+    # 매니저 slack_id로 DM 발송
+    manager_cfg = user_map.get(assignee_name, {})
+    manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+    if not manager_slack_id:
+        print(f"      ⚠ {assignee_name} slack_id 미설정 — 전송 건너뜀")
         return
 
     notifier = SlackNotifier()
@@ -285,7 +287,7 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
 
             notifier.send_assignee_message(
                 data=data,
-                channel=channel,
+                channel=manager_slack_id,
                 assignee_name=assignee_name,
                 user_map=user_map,
             )
