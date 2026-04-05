@@ -236,6 +236,7 @@ class LinearClient:
                     title
                     description
                     state {{ name type }}
+                    assignee {{ id name displayName }}
                     creator {{ id name displayName }}
                     attachments {{ nodes {{ title url }} }}
                 }}

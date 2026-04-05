@@ -121,31 +121,41 @@ def run(config: dict) -> str:
             print(f"    → 진행중인 QA카드 없음 — 발송 건너뜀")
             continue
 
+        # ── 운영모니터링 카드 수집 ──
+        from src.qa_discoverer import parse_test_phases
+        monitoring_cards = []
+        normal_cards = []
         for qa_card in active:
-            card_id = qa_card['identifier']
-
-            # ── 운영모니터링 카드: 간단 DM만 발송 ──
-            from src.qa_discoverer import parse_test_phases
             test_phases = parse_test_phases(qa_card)
             if test_phases["current_phase"] == "운영모니터링":
-                print(f"\n[3/4] {card_id}: {qa_card['title']} (운영모니터링)")
-                manager_cfg = user_map.get(manager_name, {})
-                manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
-                if manager_slack_id:
-                    try:
-                        if not notifier:
-                            notifier = SlackNotifier()
-                        card_url = f"https://linear.app/buzzvil/issue/{card_id}"
-                        notifier.send_monitoring_dm(
-                            slack_id=manager_slack_id,
-                            qa_card_title=qa_card['title'],
-                            card_url=card_url,
-                        )
-                    except Exception as e:
-                        print(f"  ✗ 운영모니터링 DM 실패: {e}")
-                        errors.append({"step": f"운영모니터링 DM ({card_id})", "detail": str(e)})
-                continue
+                card_id = qa_card['identifier']
+                print(f"\n  {card_id}: {qa_card['title']} (운영모니터링)")
+                monitoring_cards.append({
+                    "identifier": card_id,
+                    "title": qa_card['title'],
+                    "url": f"https://linear.app/buzzvil/issue/{card_id}",
+                })
+            else:
+                normal_cards.append(qa_card)
 
+        # ── 운영모니터링 DM 일괄 발송 ──
+        if monitoring_cards:
+            manager_cfg = user_map.get(manager_name, {})
+            manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+            if manager_slack_id:
+                try:
+                    if not notifier:
+                        notifier = SlackNotifier()
+                    notifier.send_monitoring_dm(
+                        slack_id=manager_slack_id,
+                        monitoring_cards=monitoring_cards,
+                    )
+                except Exception as e:
+                    print(f"  ✗ 운영모니터링 DM 실패: {e}")
+                    errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+
+        for qa_card in normal_cards:
+            card_id = qa_card['identifier']
             try:
                 print(f"\n[3/4] {card_id}: {qa_card['title']}")
                 data = prepare_qa_card_data(qa_card, config)
@@ -291,35 +301,56 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
         return
 
     notifier = SlackNotifier()
-    for qa_card in active:
-        card_id = qa_card['identifier']
 
-        # ── 운영모니터링 카드: 간단 DM만 발송 ──
-        from src.qa_discoverer import parse_test_phases
+    # ── 운영모니터링 카드 수집 ──
+    from src.qa_discoverer import parse_test_phases
+    monitoring_cards = []
+    normal_cards = []
+    for qa_card in active:
         test_phases = parse_test_phases(qa_card)
         if test_phases["current_phase"] == "운영모니터링":
+            card_id = qa_card['identifier']
             print(f"  → {card_id}: {qa_card['title']} (운영모니터링)")
-            try:
-                card_url = f"https://linear.app/buzzvil/issue/{card_id}"
-                notifier.send_monitoring_dm(
-                    slack_id=manager_slack_id,
-                    qa_card_title=qa_card['title'],
-                    card_url=card_url,
-                )
-            except Exception as e:
-                print(f"  ✗ 운영모니터링 DM 실패: {e}")
-                errors.append({"step": f"운영모니터링 DM ({card_id})", "detail": str(e)})
-            continue
+            monitoring_cards.append({
+                "identifier": card_id,
+                "title": qa_card['title'],
+                "url": f"https://linear.app/buzzvil/issue/{card_id}",
+            })
+        else:
+            normal_cards.append(qa_card)
 
+    # ── 운영모니터링 DM 일괄 발송 ──
+    if monitoring_cards:
+        try:
+            notifier.send_monitoring_dm(
+                slack_id=manager_slack_id,
+                monitoring_cards=monitoring_cards,
+            )
+        except Exception as e:
+            print(f"  ✗ 운영모니터링 DM 실패: {e}")
+            errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+
+    for qa_card in normal_cards:
+        card_id = qa_card['identifier']
         try:
             print(f"  → {card_id}: {qa_card['title']}")
             data = prepare_qa_card_data(qa_card, config)
 
-            notifier.send_assignee_message(
+            # buzz-html 업로드
+            from src.html_uploader import upload_dashboard
+            dashboard_url = upload_dashboard(
+                data["dashboard_path"],
+                filename=f"qa_dashboard_{card_id}.html",
+            )
+            data["dashboard_url"] = dashboard_url
+
+            slack_cfg = config.get("slack", {})
+            notifier.send_daily_report(
                 data=data,
                 channel=manager_slack_id,
-                assignee_name=assignee_name,
                 user_map=user_map,
+                template_path=slack_cfg.get("template_path", "slack_template.md"),
+                dashboard_path=data.get("dashboard_path"),
             )
         except Exception as e:
             msg = f"{card_id} 처리 실패: {e}"

@@ -101,7 +101,7 @@ class SlackNotifier:
         # 2) 대시보드 업로드
         dashboard_url = data.get("dashboard_url")
         if dashboard_url:
-            link_text = ":mulgae_computer: <{url}|QA 대시보드 보기>".format(url=dashboard_url)
+            link_text = "\u2022 <{url}|QA 대시보드 보기>".format(url=dashboard_url)
             link_blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": link_text}}]
             self._post_thread(channel, thread_ts, link_blocks, text=link_text)
 
@@ -492,62 +492,6 @@ class SlackNotifier:
         bugs = data.get("open_bug_count", 0)
         return f"QA 일일 리포트 | 진행률 {pct_str} | 미해결 버그 {bugs}건"
 
-    # ── QAM 개인 채널 메시지 ───────────────────────────────────────────────
-
-    def send_assignee_message(
-        self,
-        data: dict,
-        channel: str,
-        assignee_name: str,
-        user_map: dict = None,
-    ) -> None:
-        """특정 QAM의 담당 이슈를 채널에 별도 메시지로 전송 (멘션 포함)"""
-        user_map = user_map or {}
-        by_assignee = data.get("by_assignee", {})
-        info = by_assignee.get(assignee_name)
-
-        if not info:
-            print(f"  ⚠ '{assignee_name}' 담당 데이터 없음 — 전송 건너뜀")
-            return
-
-        uid_or_cfg = user_map.get(assignee_name, {})
-        slack_id = uid_or_cfg.get("slack_id") if isinstance(uid_or_cfg, dict) else uid_or_cfg
-        mention = f"<@{slack_id}>" if slack_id else f"*{assignee_name}*"
-
-        open_bugs = info.get("open_bugs", [])
-        qa_done = info.get("qa_done", 0)
-        qa_total = info.get("qa_total", 0)
-        qa_pct = info.get("qa_pct", 0.0)
-        bar = _text_bar(qa_pct, width=8)
-
-        header = f"{mention}"
-        if qa_total > 0:
-            header += f"  |  테스트 {bar} `{qa_pct}%`  ({qa_done}/{qa_total})"
-        header += f"  |  미해결 버그 *{len(open_bugs)}건*"
-
-        bug_lines = ""
-        for bug in open_bugs[:7]:
-            emoji = PRIORITY_EMOJI.get(bug.get("priorityLabel", "No priority"), "")
-            identifier = bug.get("identifier", "")
-            title = bug.get("title", "")[:45]
-            url = bug.get("url", "#")
-            state = bug.get("state", {}).get("name", "")
-            bug_lines += f"\n{emoji} <{url}|{identifier}>  {title}  _{state}_"
-        if len(open_bugs) > 7:
-            bug_lines += f"\n_... 외 {len(open_bugs) - 7}건_"
-
-        if not open_bugs:
-            bug_lines = "\n✅  미해결 버그 없음"
-
-        blocks = [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"{header}{bug_lines}"},
-            }
-        ]
-
-        self._post(channel, blocks, text=f"[QA] {assignee_name} 현황")
-
     # ── 권고사항 DM ──────────────────────────────────────────────────────
 
     def send_recommendation_dm(
@@ -715,10 +659,15 @@ class SlackNotifier:
 
     # ── 운영모니터링 DM ──────────────────────────────────────────────────
 
-    def send_monitoring_dm(self, slack_id: str, qa_card_title: str, card_url: str = "") -> None:
-        """운영모니터링 대상 카드 알림 DM을 보낸다."""
-        card_link = f"<{card_url}|{qa_card_title}>" if card_url else f"*{qa_card_title}*"
-        text = f":blob-bot: {card_link} 운영환경 검증 대상 케이스가 존재합니다:heavy_exclamation_mark:"
+    def send_monitoring_dm(self, slack_id: str, monitoring_cards: list[dict]) -> None:
+        """운영모니터링 대상 카드 목록을 DM으로 보낸다.
+        monitoring_cards: [{"identifier": "SUP-1476", "title": "...", "url": "..."}, ...]
+        """
+        card_lines = "\n".join(
+            f"\u2022 {c['identifier']} : <{c['url']}|{c['title']}>"
+            for c in monitoring_cards
+        )
+        text = f":blob-bot: 운영환경 검증 대상 케이스가 존재합니다:heavy_exclamation_mark:\n{card_lines}"
         blocks = [
             {
                 "type": "section",
@@ -729,7 +678,7 @@ class SlackNotifier:
             self.client.chat_postMessage(
                 channel=slack_id,
                 blocks=blocks,
-                text=f"운영모니터링: {qa_card_title}",
+                text=f"운영모니터링: {len(monitoring_cards)}건",
                 unfurl_links=False,
                 unfurl_media=False,
             )

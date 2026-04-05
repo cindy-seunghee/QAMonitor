@@ -59,19 +59,16 @@ def discover_qa_cards(config: dict) -> dict[str, list[dict]]:
     result: dict[str, list[dict]] = {name: [] for name in user_map}
 
     for card in all_qa_cards:
-        creator = card.get("creator") or {}
-        creator_name = (creator.get("name") or "").lower()
-        creator_display = (creator.get("displayName") or "").lower()
+        assignee = card.get("assignee") or {}
+        assignee_name = (assignee.get("name") or "").lower()
+        assignee_display = (assignee.get("displayName") or "").lower()
 
         state_name = card["state"]["name"]
         card["qa_status"] = QA_STATUS_MAP.get(state_name, state_name)
 
         for manager_name, manager_cfg in user_map.items():
             linear_name = (manager_cfg.get("linear_name") or "").lower()
-            if linear_name and linear_name in (creator_name, creator_display):
-                result[manager_name].append(card)
-                break
-            elif not linear_name and manager_name.lower() in creator_name:
+            if linear_name and linear_name in (assignee_name, assignee_display):
                 result[manager_name].append(card)
                 break
 
@@ -215,11 +212,20 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "", cell: str = "K14") 
         is_product_qa = "Product QA" in spreadsheet.title
 
         if is_product_qa:
-            # Product QA 시트: '현재 진행률' 텍스트 → 우측 셀
+            # Product QA 시트: '현재 진행률' 텍스트 기준
             found = worksheet.find("현재 진행률")
             if found:
-                raw = worksheet.cell(found.row, found.col + 1).value
-                return _parse_progress_value(raw, url, "현재 진행률 우측")
+                if test_phase == "리그레션테스트":
+                    # 통합(col+1) 다음 열부터 20칸까지 값이 있는 셀 탐색
+                    for offset in range(2, 22):
+                        raw = worksheet.cell(found.row, found.col + offset).value
+                        if raw and raw.strip():
+                            return _parse_progress_value(raw, url, f"현재 진행률 col+{offset} (리그레션)")
+                    return {"value": None, "error": "리그레션 진행률 셀을 찾을 수 없음", "sheet_url": url}
+                else:
+                    # 통합테스트: 바로 우측 셀
+                    raw = worksheet.cell(found.row, found.col + 1).value
+                    return _parse_progress_value(raw, url, "현재 진행률 우측 (통합)")
             return {"value": None, "error": "'현재 진행률' 셀을 찾을 수 없음", "sheet_url": url}
         else:
             # 커스텀 매체사 시트: 표지 탭 통계 테이블 기반
@@ -310,7 +316,9 @@ def _parse_date_range(text: str) -> tuple[str | None, str | None]:
     # '~' 또는 '\~' 로 분리
     parts = re.split(r"\\?~", text)
     if len(parts) < 2:
-        return None, None
+        # 단일 날짜 (예: "04/03") → start = end
+        single = _parse_date_flexible(text.strip())
+        return single, single
     start = _parse_date_flexible(parts[0].strip())
     # 종료일에서 괄호 이후 제거 (예: "3/17  (7일)")
     end_text = re.sub(r"\(.*\)", "", parts[1]).strip()
@@ -363,10 +371,10 @@ def parse_test_phases(qa_card: dict) -> dict:
         else:
             current_phase = "리그레션테스트"
 
-    # Due date 지났는데 Done이 아니면 → 운영모니터링
-    due_date = qa_card.get("dueDate")
+    # 리그레션 종료 + In Progress/In Review → 운영모니터링
     state_name = qa_card.get("state", {}).get("name", "")
-    if due_date and today > due_date and state_name != "Done":
+    if (current_phase in ("테스트 완료", "리그레션 대기")
+            and state_name in ("In Progress", "In Review")):
         current_phase = "운영모니터링"
 
     return {
