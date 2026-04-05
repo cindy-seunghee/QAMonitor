@@ -79,8 +79,8 @@ def discover_qa_cards(config: dict) -> dict[str, list[dict]]:
 
 
 def get_active_cards(cards: list[dict]) -> list[dict]:
-    """진행중인 QA카드만 필터"""
-    return [c for c in cards if c["qa_status"] == "진행중"]
+    """Done/Backlog 제외한 QA카드 필터"""
+    return [c for c in cards if c["state"]["name"] not in ("Done", "Backlog", "Todo", "Canceled")]
 
 
 def get_paused_cards(cards: list[dict]) -> list[dict]:
@@ -362,6 +362,12 @@ def parse_test_phases(qa_card: dict) -> dict:
             current_phase = "리그레션 대기"
         else:
             current_phase = "리그레션테스트"
+
+    # Due date 지났는데 Done이 아니면 → 운영모니터링
+    due_date = qa_card.get("dueDate")
+    state_name = qa_card.get("state", {}).get("name", "")
+    if due_date and today > due_date and state_name != "Done":
+        current_phase = "운영모니터링"
 
     return {
         "integration": integration,

@@ -123,15 +123,32 @@ def run(config: dict) -> str:
 
         for qa_card in active:
             card_id = qa_card['identifier']
+
+            # ── 운영모니터링 카드: 간단 DM만 발송 ──
+            from src.qa_discoverer import parse_test_phases
+            test_phases = parse_test_phases(qa_card)
+            if test_phases["current_phase"] == "운영모니터링":
+                print(f"\n[3/4] {card_id}: {qa_card['title']} (운영모니터링)")
+                manager_cfg = user_map.get(manager_name, {})
+                manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+                if manager_slack_id:
+                    try:
+                        if not notifier:
+                            notifier = SlackNotifier()
+                        card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+                        notifier.send_monitoring_dm(
+                            slack_id=manager_slack_id,
+                            qa_card_title=qa_card['title'],
+                            card_url=card_url,
+                        )
+                    except Exception as e:
+                        print(f"  ✗ 운영모니터링 DM 실패: {e}")
+                        errors.append({"step": f"운영모니터링 DM ({card_id})", "detail": str(e)})
+                continue
+
             try:
                 print(f"\n[3/4] {card_id}: {qa_card['title']}")
                 data = prepare_qa_card_data(qa_card, config)
-
-                # 테스트 기간 안에 있는 카드만 발송
-                test_phase = data.get("test_phase", "")
-                if test_phase not in ("통합테스트", "리그레션테스트"):
-                    print(f"      테스트 단계: {test_phase} — 발송 건너뜀")
-                    continue
 
                 last_dashboard_path = data["dashboard_path"]
                 # buzz-html 업로드
@@ -276,14 +293,27 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
     notifier = SlackNotifier()
     for qa_card in active:
         card_id = qa_card['identifier']
+
+        # ── 운영모니터링 카드: 간단 DM만 발송 ──
+        from src.qa_discoverer import parse_test_phases
+        test_phases = parse_test_phases(qa_card)
+        if test_phases["current_phase"] == "운영모니터링":
+            print(f"  → {card_id}: {qa_card['title']} (운영모니터링)")
+            try:
+                card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+                notifier.send_monitoring_dm(
+                    slack_id=manager_slack_id,
+                    qa_card_title=qa_card['title'],
+                    card_url=card_url,
+                )
+            except Exception as e:
+                print(f"  ✗ 운영모니터링 DM 실패: {e}")
+                errors.append({"step": f"운영모니터링 DM ({card_id})", "detail": str(e)})
+            continue
+
         try:
             print(f"  → {card_id}: {qa_card['title']}")
             data = prepare_qa_card_data(qa_card, config)
-
-            test_phase = data.get("test_phase", "")
-            if test_phase not in ("통합테스트", "리그레션테스트"):
-                print(f"    테스트 단계: {test_phase} — 발송 건너뜀")
-                continue
 
             notifier.send_assignee_message(
                 data=data,

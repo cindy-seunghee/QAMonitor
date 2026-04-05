@@ -713,6 +713,30 @@ class SlackNotifier:
         except SlackApiError as e:
             print(f"  \u2717 TC시트 미첨부 안내 DM 전송 실패: {e.response['error']}")
 
+    # ── 운영모니터링 DM ──────────────────────────────────────────────────
+
+    def send_monitoring_dm(self, slack_id: str, qa_card_title: str, card_url: str = "") -> None:
+        """운영모니터링 대상 카드 알림 DM을 보낸다."""
+        card_link = f"<{card_url}|{qa_card_title}>" if card_url else f"*{qa_card_title}*"
+        text = f":blob-bot: {card_link} 운영환경 검증 대상 케이스가 존재합니다:heavy_exclamation_mark:"
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"운영모니터링: {qa_card_title}",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  ✓ 운영모니터링 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  ✗ 운영모니터링 DM 전송 실패: {e.response['error']}")
+
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 
     def test_connection(self) -> bool:
