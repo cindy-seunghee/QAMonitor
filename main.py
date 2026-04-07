@@ -302,33 +302,15 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
 
     notifier = SlackNotifier()
 
-    # ── 운영모니터링 카드 수집 ──
+    # ── 운영모니터링 카드는 별도 발송이므로 스킵 ──
     from src.qa_discoverer import parse_test_phases
-    monitoring_cards = []
     normal_cards = []
     for qa_card in active:
         test_phases = parse_test_phases(qa_card)
         if test_phases["current_phase"] == "운영모니터링":
-            card_id = qa_card['identifier']
-            print(f"  → {card_id}: {qa_card['title']} (운영모니터링)")
-            monitoring_cards.append({
-                "identifier": card_id,
-                "title": qa_card['title'],
-                "url": f"https://linear.app/buzzvil/issue/{card_id}",
-            })
-        else:
-            normal_cards.append(qa_card)
-
-    # ── 운영모니터링 DM 일괄 발송 ──
-    if monitoring_cards:
-        try:
-            notifier.send_monitoring_dm(
-                slack_id=manager_slack_id,
-                monitoring_cards=monitoring_cards,
-            )
-        except Exception as e:
-            print(f"  ✗ 운영모니터링 DM 실패: {e}")
-            errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+            print(f"  → {qa_card['identifier']}: {qa_card['title']} (운영모니터링 — 스킵)")
+            continue
+        normal_cards.append(qa_card)
 
     for qa_card in normal_cards:
         card_id = qa_card['identifier']
@@ -364,6 +346,69 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
         print(f"{assignee_name} 메시지 전송 완료 (오류 {len(errors)}건)")
     else:
         print(f"{assignee_name} 메시지 전송 완료!")
+
+
+def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
+    """특정 QAM의 운영모니터링 카드만 일괄 DM 발송."""
+    from src.qa_discoverer import (
+        discover_qa_cards, get_active_cards,
+        parse_test_phases, resolve_user_map,
+    )
+    from src.slack_notifier import SlackNotifier
+
+    errors: list[dict] = []
+
+    print("─" * 50)
+    print(f"[운영모니터링] {assignee_name} 메시지 준비")
+
+    try:
+        cards_by_manager = discover_qa_cards(config)
+    except Exception as e:
+        print(f"  ✗ QA카드 조회 실패: {e}")
+        errors.append({"step": "QA카드 조회", "detail": str(e)})
+        _notify_errors(config, errors)
+        return
+
+    cards = cards_by_manager.get(assignee_name, [])
+    active = get_active_cards(cards)
+
+    monitoring_cards = []
+    for qa_card in active:
+        test_phases = parse_test_phases(qa_card)
+        if test_phases["current_phase"] == "운영모니터링":
+            card_id = qa_card['identifier']
+            print(f"  → {card_id}: {qa_card['title']}")
+            monitoring_cards.append({
+                "identifier": card_id,
+                "title": qa_card['title'],
+                "url": f"https://linear.app/buzzvil/issue/{card_id}",
+            })
+
+    if not monitoring_cards:
+        print(f"  {assignee_name}: 운영모니터링 대상 카드 없음 — 발송 건너뜀")
+        return
+
+    slack_cfg = config.get("slack", {})
+    user_map = resolve_user_map(slack_cfg.get("user_map") or {})
+    manager_cfg = user_map.get(assignee_name, {})
+    manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+    if not manager_slack_id:
+        print(f"      ⚠ {assignee_name} slack_id 미설정 — 전송 건너뜀")
+        return
+
+    try:
+        notifier = SlackNotifier()
+        notifier.send_monitoring_dm(
+            slack_id=manager_slack_id,
+            monitoring_cards=monitoring_cards,
+        )
+    except Exception as e:
+        print(f"  ✗ 운영모니터링 DM 실패: {e}")
+        errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+
+    _notify_errors(config, errors)
+    print("─" * 50)
+    print(f"{assignee_name} 운영모니터링 전송 완료" + (f" (오류 {len(errors)}건)" if errors else "!"))
 
 
 def run_single_card(config: dict, card_id: str) -> None:
@@ -487,6 +532,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run-now", action="store_true", help="지금 바로 실행 (전체 요약)")
     group.add_argument("--run-for", metavar="NAME", help="특정 QAM 개인 메시지만 즉시 전송")
+    group.add_argument("--run-monitoring", metavar="NAME", help="특정 QAM 운영모니터링 DM만 즉시 전송")
     group.add_argument("--run-card", metavar="CARD_ID", help="특정 QA카드만 실행 (예: SUP-1557)")
     group.add_argument("--delete-msg", metavar="URL", help="봇이 보낸 Slack 메시지 삭제 (메시지 링크)")
     group.add_argument("--dashboard-only", action="store_true", help="대시보드만 생성")
@@ -520,6 +566,12 @@ def main():
                 print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
                 return
             run_for_assignee(config, args.run_for)
+
+        elif args.run_monitoring:
+            if _is_holiday():
+                print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
+                return
+            run_monitoring_for_assignee(config, args.run_monitoring)
 
         elif args.run_card:
             run_single_card(config, args.run_card)  # 수동 테스트용이므로 공휴일 체크 안 함

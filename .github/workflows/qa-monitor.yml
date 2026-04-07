@@ -4,8 +4,10 @@ on:
   # 매일 지정 시각에 실행 (UTC 기준, KST = UTC + 9)
   # config.yaml user_map의 send_time과 맞춰야 합니다
   schedule:
-    - cron: '0 6 * * 1-5'   # 평일 15:00 KST → Cindy
-    - cron: '0 7 * * 1-5'   # 평일 16:00 KST → Liana
+    - cron: '0 6 * * 1-5'   # 평일 15:00 KST → Cindy 테스트 진행상황
+    - cron: '0 7 * * 1-5'   # 평일 16:00 KST → Liana 테스트 진행상황
+    - cron: '30 23 * * 0-4' # 평일 08:30 KST → Cindy 운영모니터링
+    - cron: '0 0 * * 1-5'   # 평일 09:00 KST → Liana 운영모니터링
 
   # 수동 실행 (GitHub Actions 탭에서 "Run workflow" 버튼)
   workflow_dispatch:
@@ -134,3 +136,59 @@ jobs:
           name: qa-dashboard-liana
           path: output/
           retention-days: 30
+
+  # Cindy 운영모니터링 (스케줄 전용)
+  cindy-monitoring:
+    if: github.event.schedule == '30 23 * * 0-4'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
+
+      - name: Run QA Monitor — Cindy 운영모니터링
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+        run: python main.py --run-monitoring Cindy
+
+  # Liana 운영모니터링 (스케줄 전용)
+  liana-monitoring:
+    if: github.event.schedule == '0 0 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
+
+      - name: Run QA Monitor — Liana 운영모니터링
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+        run: python main.py --run-monitoring Liana
