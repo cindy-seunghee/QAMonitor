@@ -27,10 +27,11 @@ def load_config(path: str = "config.yaml") -> dict:
 
 
 def _is_holiday() -> bool:
-    """오늘이 주말 또는 한국 공휴일이면 True"""
-    from datetime import date
+    """오늘(KST)이 주말 또는 한국 공휴일이면 True"""
+    from datetime import datetime, timezone, timedelta
     import holidays
-    today = date.today()
+    kst = timezone(timedelta(hours=9))
+    today = datetime.now(kst).date()
     if today.weekday() >= 5:
         return True
     return today in holidays.KR(years=today.year)
