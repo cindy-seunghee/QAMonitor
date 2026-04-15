@@ -78,6 +78,13 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     if pct_is_unknown:
         progress_note = f"<div style='font-size:12px;color:#f97316;margin-top:8px'>⚠ 테스트케이스 시트 접근 불가 — 진행률을 확인할 수 없습니다</div>"
 
+    # PASS/FAIL/Block/N/A 건수
+    step_counts = data.get("step_counts", {})
+    pass_count = step_counts.get("pass", None)
+    fail_count = step_counts.get("fail", None)
+    block_count = step_counts.get("block", None)
+    na_count = step_counts.get("na", None)
+
     # 프로그레스바 색상 (계획 대비 진행률 기준)
     progress_status = data.get("progress_status", {})
     progress_ratio = progress_status.get("ratio", 1)
@@ -467,6 +474,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
           {pct_display}{'%' if not pct_is_unknown else ''}
         </div>
       </div>
+      {f'<div style="display:flex;gap:16px;margin-top:10px;font-size:13px"><span style="color:#22c55e">✅ PASS: <b>{pass_count}</b>건</span><span style="color:#ef4444">❌ FAIL: <b>{fail_count}</b>건</span>{f"<span style=\\"color:#f59e0b\\">⚠ Block: <b>{block_count}</b>건</span>" if block_count is not None else ""}{f"<span style=\\"color:#6b7280\\">➖ N/A: <b>{na_count}</b>건</span>" if na_count is not None else ""}</div>' if pass_count is not None else ''}
       {progress_note}
     </div>
   </div>

@@ -140,6 +140,48 @@ def _parse_progress_value(raw: str | None, url: str, label: str = "") -> dict:
         return {"value": None, "error": f"진행률 파싱 실패: '{raw}'", "sheet_url": url}
 
 
+def _read_step_counts(worksheet, test_phase: str) -> dict | None:
+    """TC시트에서 테스트 성공/실패 STEP 건수를 읽는다.
+    Returns: {"pass": int, "fail": int} | None
+    """
+    try:
+        is_regression = test_phase == "리그레션테스트"
+        result = {}
+
+        keywords = [
+            ("테스트 성공 STEP", "pass"),
+            ("테스트 실패 STEP", "fail"),
+            ("Block 수", "block"),
+            ("N/A 수", "na"),
+        ]
+
+        for keyword, key in keywords:
+            found = worksheet.find(keyword)
+            if not found:
+                continue
+            if is_regression:
+                # 통합(col+1) 다음부터 20칸 탐색
+                for offset in range(2, 22):
+                    val = worksheet.cell(found.row, found.col + offset).value
+                    if val and val.strip():
+                        try:
+                            result[key] = int(float(val.strip()))
+                        except ValueError:
+                            pass
+                        break
+            else:
+                val = worksheet.cell(found.row, found.col + 1).value
+                if val and val.strip():
+                    try:
+                        result[key] = int(float(val.strip()))
+                    except ValueError:
+                        pass
+
+        return result if result else None
+    except Exception:
+        return None
+
+
 def _find_progress_by_stats_table(
     worksheet, section_header: str, url: str,
 ) -> dict | None:
@@ -220,12 +262,16 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "", cell: str = "K14") 
                     for offset in range(2, 22):
                         raw = worksheet.cell(found.row, found.col + offset).value
                         if raw and raw.strip():
-                            return _parse_progress_value(raw, url, f"현재 진행률 col+{offset} (리그레션)")
+                            result = _parse_progress_value(raw, url, f"현재 진행률 col+{offset} (리그레션)")
+                            result["step_counts"] = _read_step_counts(worksheet, test_phase)
+                            return result
                     return {"value": None, "error": "리그레션 진행률 셀을 찾을 수 없음", "sheet_url": url}
                 else:
                     # 통합테스트: 바로 우측 셀
                     raw = worksheet.cell(found.row, found.col + 1).value
-                    return _parse_progress_value(raw, url, "현재 진행률 우측 (통합)")
+                    result = _parse_progress_value(raw, url, "현재 진행률 우측 (통합)")
+                    result["step_counts"] = _read_step_counts(worksheet, test_phase)
+                    return result
             return {"value": None, "error": "'현재 진행률' 셀을 찾을 수 없음", "sheet_url": url}
         else:
             # 커스텀 매체사 시트: 표지 탭 통계 테이블 기반
@@ -586,6 +632,17 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
 
     if sheet_result["sheet_url"]:
         data["testcase_sheet_url"] = sheet_result["sheet_url"]
+
+    # PASS/FAIL 건수
+    step_counts = sheet_result.get("step_counts")
+    if step_counts:
+        data["step_counts"] = step_counts
+        parts = [f"PASS: {step_counts.get('pass', '?')}건", f"FAIL: {step_counts.get('fail', '?')}건"]
+        if "block" in step_counts:
+            parts.append(f"Block: {step_counts['block']}건")
+        if "na" in step_counts:
+            parts.append(f"N/A: {step_counts['na']}건")
+        print(f"      테스트 {' | '.join(parts)}")
 
     # 계획 대비 진행률 + 아이콘 결정
     progress_status = calc_progress_status(test_phases, data["progress"]["pct"])
