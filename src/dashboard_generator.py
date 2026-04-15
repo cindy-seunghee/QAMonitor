@@ -85,6 +85,18 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     block_count = step_counts.get("block", None)
     na_count = step_counts.get("na", None)
 
+    step_counts_html = ""
+    if pass_count is not None:
+        parts = [
+            f'<span style="color:#22c55e">✅ PASS: <b>{pass_count}</b>건</span>',
+            f'<span style="color:#ef4444">❌ FAIL: <b>{fail_count}</b>건</span>',
+        ]
+        if block_count is not None:
+            parts.append(f'<span style="color:#f59e0b">⚠ Block: <b>{block_count}</b>건</span>')
+        if na_count is not None:
+            parts.append(f'<span style="color:#6b7280">➖ N/A: <b>{na_count}</b>건</span>')
+        step_counts_html = f'<div style="display:flex;gap:16px;margin-top:10px;font-size:13px">{"".join(parts)}</div>'
+
     # 프로그레스바 색상 (계획 대비 진행률 기준)
     progress_status = data.get("progress_status", {})
     progress_ratio = progress_status.get("ratio", 1)
@@ -474,7 +486,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
           {pct_display}{'%' if not pct_is_unknown else ''}
         </div>
       </div>
-      {f'<div style="display:flex;gap:16px;margin-top:10px;font-size:13px"><span style="color:#22c55e">✅ PASS: <b>{pass_count}</b>건</span><span style="color:#ef4444">❌ FAIL: <b>{fail_count}</b>건</span>{f"<span style=\\"color:#f59e0b\\">⚠ Block: <b>{block_count}</b>건</span>" if block_count is not None else ""}{f"<span style=\\"color:#6b7280\\">➖ N/A: <b>{na_count}</b>건</span>" if na_count is not None else ""}</div>' if pass_count is not None else ''}
+      {step_counts_html}
       {progress_note}
     </div>
   </div>
