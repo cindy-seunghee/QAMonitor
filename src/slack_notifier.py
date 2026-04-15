@@ -110,9 +110,10 @@ class SlackNotifier:
     def _build_main_message(
         self, data: dict, user_map: dict, dashboard_path: str = None,
     ) -> list[dict]:
-        from datetime import datetime
+        from datetime import datetime, timezone, timedelta
 
-        today = datetime.now().strftime("%m/%d")
+        kst = timezone(timedelta(hours=9))
+        today = datetime.now(kst).strftime("%m/%d")
         project_name = data.get("project_name", "QA")
         test_phase = data.get("test_phase", "")
         progress_status = data.get("progress_status", {})

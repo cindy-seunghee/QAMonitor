@@ -100,7 +100,7 @@ def analyze(issues: list[dict], config: dict) -> dict:
     )
 
     return {
-        "generated_at": datetime.now(timezone.utc).astimezone().isoformat(),
+        "generated_at": datetime.now(timezone(timedelta(hours=9))).isoformat(),
         "project_name": "QA Project",  # qa_discoverer에서 QA카드 title로 덮어씀
         "release_date": release_date_str,
         "dday": dday,
@@ -230,7 +230,8 @@ def _status_breakdown(issues: list[dict]) -> list[dict]:
 
 def _calc_trend(issues: list[dict], days: int = 14) -> dict:
     """일별 신규 이슈 생성 수 및 해결 수"""
-    now = datetime.now(timezone.utc)
+    kst = timezone(timedelta(hours=9))
+    now = datetime.now(kst)
     date_labels = []
     created_per_day: dict[str, int] = defaultdict(int)
     resolved_per_day: dict[str, int] = defaultdict(int)
@@ -298,7 +299,8 @@ def _check_exit_criteria(
 
 
 def _today_new_issues(bug_issues: list[dict]) -> int:
-    now = datetime.now(timezone.utc)
+    kst = timezone(timedelta(hours=9))
+    now = datetime.now(kst)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     count = 0
     for issue in bug_issues:
@@ -423,7 +425,7 @@ def _calc_dday(release_date_str: str) -> str | None:
         return None
     try:
         release = datetime.strptime(release_date_str, "%Y-%m-%d").date()
-        today = datetime.now().date()
+        today = datetime.now(timezone(timedelta(hours=9))).date()
         diff = (release - today).days
         if diff > 0:
             return f"D-{diff}"

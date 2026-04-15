@@ -354,8 +354,10 @@ def parse_test_phases(qa_card: dict) -> dict:
             if start and end:
                 regression = {"start": start, "end": end}
 
-    # 오늘 날짜 기준 현재 단계 판단
-    today = datetime.now().strftime("%Y-%m-%d")
+    # 오늘 날짜 기준 현재 단계 판단 (KST)
+    from datetime import timezone, timedelta
+    kst = timezone(timedelta(hours=9))
+    today = datetime.now(kst).strftime("%Y-%m-%d")
     current_phase = "테스트 전"
 
     if integration and integration["start"] <= today <= integration["end"]:
@@ -404,9 +406,10 @@ def _count_working_days(start: str, end: str) -> int:
 
 
 def _working_days_elapsed(start: str) -> int:
-    """start~오늘까지 경과한 워킹데이 수"""
-    from datetime import datetime
-    today = datetime.now().strftime("%Y-%m-%d")
+    """start~오늘(KST)까지 경과한 워킹데이 수"""
+    from datetime import datetime, timezone, timedelta
+    kst = timezone(timedelta(hours=9))
+    today = datetime.now(kst).strftime("%Y-%m-%d")
     return _count_working_days(start, today)
 
 

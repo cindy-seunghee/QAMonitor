@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
@@ -31,7 +31,8 @@ def _load_checklist(path: str) -> list[str]:
 def generate_dashboard(data: dict, output_dir: str = "output", checklist_path: str = "deployment_checklist.md") -> str:
     """분석 데이터로 HTML 대시보드를 생성하고 파일 경로를 반환"""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    kst = timezone(timedelta(hours=9))
+    timestamp = datetime.now(kst).strftime("%Y%m%d_%H%M%S")
     filename = f"qa_dashboard_{timestamp}.html"
     filepath = os.path.join(output_dir, filename)
 
