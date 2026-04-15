@@ -270,13 +270,18 @@ class LinearClient:
         return data.get("issue")
 
     def get_child_issues(self, parent_id: str) -> list[dict]:
-        """부모 이슈(UUID)의 하위 이슈를 ISSUE_FIELDS 형태로 조회"""
+        """부모 이슈(UUID)의 하위 이슈를 2단계까지 조회"""
         query = f"""
         query($parentId: String!, $after: String) {{
             issue(id: $parentId) {{
                 children(first: 250, after: $after) {{
                     pageInfo {{ hasNextPage endCursor }}
-                    nodes {{ {self.ISSUE_FIELDS} }}
+                    nodes {{
+                        {self.ISSUE_FIELDS}
+                        children(first: 250) {{
+                            nodes {{ {self.ISSUE_FIELDS} }}
+                        }}
+                    }}
                 }}
             }}
         }}
@@ -286,7 +291,11 @@ class LinearClient:
         while True:
             data = self._query(query, {"parentId": parent_id, "after": cursor})
             conn = data["issue"]["children"]
-            issues.extend(conn["nodes"])
+            for node in conn["nodes"]:
+                # 2단계 하위이슈 추출 후 제거
+                grandchildren = node.pop("children", {}).get("nodes", [])
+                issues.append(node)
+                issues.extend(grandchildren)
             if not conn["pageInfo"]["hasNextPage"]:
                 break
             cursor = conn["pageInfo"]["endCursor"]
