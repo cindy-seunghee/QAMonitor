@@ -319,6 +319,19 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
             print(f"  → {card_id}: {qa_card['title']}")
             data = prepare_qa_card_data(qa_card, config)
 
+            # 뷰 URL 가져오기
+            from tools.manage_linear_views import get_existing_views
+            existing = get_existing_views(card_id)
+            card_view_urls = {}
+            for name, v in existing.items():
+                slug = v.get("slugId") or v["id"]
+                url = f"https://linear.app/buzzvil/view/{slug}"
+                if "전체" in name:
+                    card_view_urls["total"] = url
+                elif "내" in name:
+                    card_view_urls["my"] = url
+            data["view_urls"] = card_view_urls
+
             # buzz-html 업로드
             from src.html_uploader import upload_dashboard
             dashboard_url = upload_dashboard(
