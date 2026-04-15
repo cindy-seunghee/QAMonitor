@@ -337,6 +337,8 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
                     card_view_urls["total"] = url
                 elif "내" in name:
                     card_view_urls["my"] = url
+                elif "수정 확인 대기" in name:
+                    card_view_urls["dev_done"] = url
             data["view_urls"] = card_view_urls
 
             # buzz-html 업로드
@@ -481,6 +483,8 @@ def run_single_card(config: dict, card_id: str) -> None:
             view_urls["total"] = url
         elif "내" in name:
             view_urls["my"] = url
+        elif "수정 확인 대기" in name:
+            view_urls["dev_done"] = url
 
     data = prepare_qa_card_data(qa_card, config)
     data["view_urls"] = view_urls

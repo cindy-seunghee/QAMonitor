@@ -61,6 +61,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     trend = data.get("trend", {})
     exit_status = data.get("exit_status", [])
     open_bug_count = data.get("open_bug_count", 0)
+    dev_done_bug_count = data.get("dev_done_bug_count", 0)
     today_new = data.get("today_new_count", 0)
     open_bugs = data.get("open_bugs", [])
     max_bugs_display = data.get("max_bugs_display", 50)
@@ -480,6 +481,11 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
         <div class="metric-label">미해결 버그</div>
         <div class="metric-value {'metric-red' if open_bug_count > 0 else 'metric-green'}">{open_bug_count}</div>
         <div class="metric-sub">오픈 이슈</div>
+      </div>
+      <div class="card metric-card">
+        <div class="metric-label">수정 확인 대기</div>
+        <div class="metric-value {'metric-purple' if dev_done_bug_count > 0 else 'metric-green'}">{dev_done_bug_count}</div>
+        <div class="metric-sub">개발자 QA DONE</div>
       </div>
       <div class="card metric-card">
         <div class="metric-label">오늘 신규 이슈</div>

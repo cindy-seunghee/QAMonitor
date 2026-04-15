@@ -651,6 +651,8 @@ def sync_views(cards_by_manager: dict[str, list[dict]]) -> dict:
                         urls["total"] = v["url"]
                     elif v["name"] == "내 이슈":
                         urls["my"] = v["url"]
+                    elif v["name"] == "수정 확인 대기":
+                        urls["dev_done"] = v["url"]
                 view_urls[identifier] = urls
             except Exception as e:
                 failed.append({"card": identifier, "action": "생성", "reason": str(e)})

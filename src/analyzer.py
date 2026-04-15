@@ -75,12 +75,14 @@ def analyze(issues: list[dict], config: dict) -> dict:
     qa_skip_states = cfg_linear.get("qa_skip_states", ["Cancelled", "N/A"])
     bug_labels = cfg_linear.get("bug_labels", ["Bug", "Defect"])
     bug_open_states = cfg_linear.get("bug_open_states", ["Triage", "Todo", "In Progress", "In Review", "Reopened"])
+    bug_dev_done_states = cfg_linear.get("bug_dev_done_states", ["개발자 QA DONE"])
 
     exit_cfg = config.get("exit_criteria", {})
 
     qa_cards = [i for i in issues if _is_qa_card(i, qa_labels, qa_skip_states)]
     bug_issues = [i for i in issues if _is_bug(i, bug_labels)]
     open_bugs = [i for i in bug_issues if _is_open_bug(i, bug_labels, bug_open_states)]
+    dev_done_bugs = [i for i in bug_issues if i.get("state", {}).get("name") in bug_dev_done_states]
 
     progress = _calc_progress(qa_cards, qa_done_states)
     by_assignee = _group_by_assignee(qa_cards, open_bugs, qa_done_states)
@@ -107,6 +109,8 @@ def analyze(issues: list[dict], config: dict) -> dict:
         "progress": progress,
         "open_bugs": open_bugs,
         "open_bug_count": len(open_bugs),
+        "dev_done_bugs": dev_done_bugs,
+        "dev_done_bug_count": len(dev_done_bugs),
         "today_new_count": today_new,
         "by_assignee": by_assignee,
         "priority_breakdown": priority_breakdown,

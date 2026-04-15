@@ -204,7 +204,14 @@ class SlackNotifier:
             lines += f"\n> \u2022 *잔여 이슈* : *{open_bug_count}건*"
         if priority_lines:
             lines += priority_lines.replace("\n    ", "\n>     ")
-        if open_bug_count == 0:
+        dev_done_count = data.get("dev_done_bug_count", 0)
+        if dev_done_count > 0:
+            dev_done_url = view_urls.get("dev_done", "")
+            if dev_done_url:
+                lines += f"\n> \u2022 *수정 확인 대기* : <{dev_done_url}|*{dev_done_count}건*>"
+            else:
+                lines += f"\n> \u2022 *수정 확인 대기* : *{dev_done_count}건*"
+        if open_bug_count == 0 and dev_done_count == 0:
             lines += "\n\n미해결 잔여 이슈가 없어요 :among_thumbs_up:"
 
         blocks = [
