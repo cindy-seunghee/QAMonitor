@@ -97,6 +97,23 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
             parts.append(f'<span style="color:#6b7280">➖ N/A: <b>{na_count}</b>건</span>')
         step_counts_html = f'<div style="display:flex;gap:16px;margin-top:10px;font-size:13px">{"".join(parts)}</div>'
 
+    # Block 상세 (이슈별 그룹핑)
+    block_details = data.get("block_details", [])
+    block_details_html = ""
+    if block_details:
+        items = ""
+        for bd in block_details:
+            issue = bd["issue"]
+            count = bd["count"]
+            title = bd.get("title", "")
+            if issue.startswith("SUP-"):
+                link = f'<a href="https://linear.app/buzzvil/issue/{issue}" target="_blank" style="color:#0052cc;text-decoration:none">{issue}</a>'
+            else:
+                link = issue
+            title_text = f' {title}' if title else ''
+            items += f'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #fde68a"><span style="font-size:12px">{link}{title_text}</span><span style="font-size:12px;font-weight:600;color:#92400e;white-space:nowrap;margin-left:12px">{count}건</span></div>'
+        block_details_html = f'<div style="margin-top:10px;display:inline-block;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 14px"><div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px">⚠ Block 원인 이슈</div>{items}</div>'
+
     # 프로그레스바 색상 (계획 대비 진행률 기준)
     progress_status = data.get("progress_status", {})
     progress_ratio = progress_status.get("ratio", 1)
@@ -313,7 +330,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
 
   /* ── Header ── */
   .header {{
-    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
     color: white; padding: 24px 32px;
     display: flex; justify-content: space-between; align-items: center;
   }}
@@ -439,7 +456,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
 
 <div class="header">
   <div class="header-left">
-    <h1>{project_name} — QA 모니터링 대시보드</h1>
+    <div style="display:flex;align-items:center;gap:12px"><img src="https://www.buzzvil.com/logo.svg" alt="Buzzvil" style="height:45px"><h1>{project_name} — QA 모니터링 대시보드</h1></div>
     <p>{'[' + data.get('test_phase', '') + '] ' if data.get('test_phase') else ''}마지막 업데이트: {generated_at[:19].replace('T', ' ')}</p>
   </div>
   <div class="header-right">
@@ -456,7 +473,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     <div class="grid-4">
       <div class="card metric-card">
         <div class="metric-label">테스트 진행률</div>
-        <div class="metric-value metric-purple">{pct_display}{'%' if not pct_is_unknown else ''}</div>
+        <div class="metric-value" style="color:{progress_bar_color}">{pct_display}{'%' if not pct_is_unknown else ''}</div>
         <div class="metric-sub">{progress.get('done', 0)} / {progress.get('total', 0)} 완료</div>
       </div>
       <div class="card metric-card">
@@ -487,6 +504,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
         </div>
       </div>
       {step_counts_html}
+      {block_details_html}
       {progress_note}
     </div>
   </div>

@@ -182,6 +182,90 @@ def _read_step_counts(worksheet, test_phase: str) -> dict | None:
         return None
 
 
+def _read_block_details(worksheet, test_phase: str) -> list[dict] | None:
+    """TC시트에서 Block 케이스를 스캔하여 이슈번호별 건수를 집계한다.
+    Returns: [{"issue": "SUP-1841", "count": 5}, ...] | None
+    """
+    import re
+    try:
+        all_vals = worksheet.get_all_values()
+        if not all_vals:
+            return None
+
+        # 헤더 행 찾기: 'NUM' 또는 'Pri'가 있는 행
+        header_row = None
+        for idx, row in enumerate(all_vals):
+            for cell in row:
+                if cell.strip() in ("NUM", "Pri"):
+                    header_row = idx
+                    break
+            if header_row is not None:
+                break
+        if header_row is None:
+            return None
+
+        header = all_vals[header_row]
+        is_regression = test_phase == "리그레션테스트"
+
+        # 결과 열과 Issue num 열 찾기
+        result_cols = []  # (col_index, issue_col_index) 쌍
+        if is_regression:
+            for i, h in enumerate(header):
+                h_stripped = h.strip()
+                if "리그" in h_stripped and ("AOS" in h_stripped or "iOS" in h_stripped or "Android" in h_stripped):
+                    # 대응하는 리그 Issue num 열 찾기
+                    issue_col = None
+                    for j, hj in enumerate(header):
+                        if "리그" in hj.strip() and ("Issue" in hj or "issue" in hj):
+                            issue_col = j
+                            break
+                    result_cols.append((i, issue_col))
+        else:
+            for i, h in enumerate(header):
+                h_stripped = h.strip()
+                if h_stripped in ("AOS", "iOS", "Android") and "리그" not in h_stripped:
+                    # 대응하는 Issue num 열 찾기
+                    issue_col = None
+                    for j, hj in enumerate(header):
+                        hj_stripped = hj.strip()
+                        if ("Issue" in hj_stripped or "issue" in hj_stripped) and "리그" not in hj_stripped:
+                            issue_col = j
+                            break
+                    result_cols.append((i, issue_col))
+
+        if not result_cols:
+            return None
+
+        # Block 케이스 스캔
+        block_pattern = re.compile(r"Block\s*:\s*(SUP-\d+)", re.IGNORECASE)
+        issue_counts: dict[str, int] = {}
+
+        for row in all_vals[header_row + 1:]:
+            for result_col, issue_col in result_cols:
+                if result_col >= len(row):
+                    continue
+                val = row[result_col].strip()
+                if val.lower() == "block":
+                    issue_id = "미지정"
+                    if issue_col is not None and issue_col < len(row):
+                        issue_text = row[issue_col].strip()
+                        m = block_pattern.search(issue_text)
+                        if m:
+                            issue_id = m.group(1)
+                    issue_counts[issue_id] = issue_counts.get(issue_id, 0) + 1
+
+        if not issue_counts:
+            return None
+
+        return sorted(
+            [{"issue": k, "count": v} for k, v in issue_counts.items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )
+    except Exception:
+        return None
+
+
 def _find_progress_by_stats_table(
     worksheet, section_header: str, url: str,
 ) -> dict | None:
@@ -264,6 +348,7 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "", cell: str = "K14") 
                         if raw and raw.strip():
                             result = _parse_progress_value(raw, url, f"현재 진행률 col+{offset} (리그레션)")
                             result["step_counts"] = _read_step_counts(worksheet, test_phase)
+                            result["block_details"] = _read_block_details(worksheet, test_phase)
                             return result
                     return {"value": None, "error": "리그레션 진행률 셀을 찾을 수 없음", "sheet_url": url}
                 else:
@@ -271,6 +356,7 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "", cell: str = "K14") 
                     raw = worksheet.cell(found.row, found.col + 1).value
                     result = _parse_progress_value(raw, url, "현재 진행률 우측 (통합)")
                     result["step_counts"] = _read_step_counts(worksheet, test_phase)
+                    result["block_details"] = _read_block_details(worksheet, test_phase)
                     return result
             return {"value": None, "error": "'현재 진행률' 셀을 찾을 수 없음", "sheet_url": url}
         else:
@@ -643,6 +729,20 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
         if "na" in step_counts:
             parts.append(f"N/A: {step_counts['na']}건")
         print(f"      테스트 {' | '.join(parts)}")
+
+    block_details = sheet_result.get("block_details")
+    if block_details:
+        # Linear에서 이슈 제목 가져오기
+        for bd in block_details:
+            if bd["issue"].startswith("SUP-"):
+                try:
+                    issue_data = client.get_issue_by_identifier(bd["issue"])
+                    if issue_data:
+                        bd["title"] = issue_data.get("title", "")
+                except Exception:
+                    pass
+            print(f"      Block 원인: {bd['issue']} ({bd['count']}건) {bd.get('title', '')}")
+        data["block_details"] = block_details
 
     # 계획 대비 진행률 + 아이콘 결정
     progress_status = calc_progress_status(test_phases, data["progress"]["pct"])

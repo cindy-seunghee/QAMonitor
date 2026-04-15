@@ -254,6 +254,21 @@ class LinearClient:
             cursor = conn["pageInfo"]["endCursor"]
         return issues
 
+    def get_issue_by_identifier(self, identifier: str):
+        """이슈 식별자(예: SUP-1841)로 이슈 제목 등 기본 정보를 조회"""
+        query = f"""
+        query {{
+            issue(id: "{identifier}") {{
+                id
+                identifier
+                title
+                state {{ name }}
+            }}
+        }}
+        """
+        data = self._query(query)
+        return data.get("issue")
+
     def get_child_issues(self, parent_id: str) -> list[dict]:
         """부모 이슈(UUID)의 하위 이슈를 ISSUE_FIELDS 형태로 조회"""
         query = f"""
