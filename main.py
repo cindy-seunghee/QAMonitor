@@ -291,6 +291,13 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
         print(f"  {assignee_name}: 진행중인 QA카드 없음 — 발송 건너뜀")
         return
 
+    # 뷰 동기화
+    from src.qa_discoverer import sync_views
+    try:
+        sync_views(cards_by_manager)
+    except Exception as e:
+        print(f"  ⚠ 뷰 동기화 실패: {e}")
+
     slack_cfg = config.get("slack", {})
     user_map = resolve_user_map(slack_cfg.get("user_map") or {})
 

@@ -35,7 +35,7 @@ def _client():
 # ── 조회 ──────────────────────────────────────────────────────────────────
 
 def get_issue_info(identifier: str) -> dict:
-    """이슈 UUID + 팀 정보 + 하위 이슈 담당자 조회"""
+    """이슈 UUID + 팀 정보 + 하위 이슈(2단계) 조회"""
     query = """
     query($id: String!) {
         issue(id: $id) {
@@ -44,13 +44,28 @@ def get_issue_info(identifier: str) -> dict:
             team { id key }
             children(first: 250) {
                 nodes {
+                    id
                     assignee { id name displayName email }
+                    children(first: 250) {
+                        nodes { id }
+                    }
                 }
             }
         }
     }
     """
     return _client()._query(query, {"id": identifier})["issue"]
+
+
+def _get_all_child_ids(issue: dict) -> list[str]:
+    """1단계 + 2단계 하위 이슈의 UUID를 모두 수집"""
+    parent_uuid = issue["id"]
+    child_ids = [parent_uuid]
+    for child in issue.get("children", {}).get("nodes", []):
+        child_ids.append(child["id"])
+        for grandchild in child.get("children", {}).get("nodes", []):
+            child_ids.append(grandchild.get("id", ""))
+    return child_ids
 
 
 def get_valid_states(team_id: str) -> list[str]:
@@ -126,6 +141,9 @@ def create_views_for_card(identifier: str) -> dict:
     parent_uuid = issue["id"]
     team_id = issue["team"]["id"]
 
+    # 1단계 + 2단계 하위 이슈의 parent UUID 수집
+    child_parent_ids = _get_all_child_ids(issue)
+
     valid_states = get_valid_states(team_id)
     existing = get_existing_views(identifier)
 
@@ -133,38 +151,35 @@ def create_views_for_card(identifier: str) -> dict:
     skipped = []
     views = []
 
+    # 기존 뷰가 있으면 삭제 후 재생성 (필터 업데이트를 위해)
+    for view_name, view_info in existing.items():
+        try:
+            delete_view(view_info["id"])
+        except Exception:
+            pass
+
     # 전체 잔여이슈 뷰
     total_view_name = f"전체 잔여이슈 [{identifier}]"
-    if total_view_name in existing:
-        slug = existing[total_view_name].get("slugId") or existing[total_view_name]["id"]
-        views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
-        skipped.append("전체")
-    else:
-        filter_data = {
-            "parent": {"id": {"eq": parent_uuid}},
-            "state": {"name": {"in": valid_states}},
-        }
-        view = create_view(total_view_name, team_id, filter_data)
-        slug = view.get("slugId") or view["id"]
-        views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
-        created.append("전체")
+    filter_data = {
+        "parent": {"id": {"in": child_parent_ids}},
+        "state": {"name": {"in": valid_states}},
+    }
+    view = create_view(total_view_name, team_id, filter_data)
+    slug = view.get("slugId") or view["id"]
+    views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
+    created.append("전체")
 
     # 내 잔여이슈 뷰 (Current User)
     my_view_name = f"내 잔여이슈 [{identifier}]"
-    if my_view_name in existing:
-        slug = existing[my_view_name].get("slugId") or existing[my_view_name]["id"]
-        views.append({"name": "내 이슈", "url": f"https://linear.app/buzzvil/view/{slug}"})
-        skipped.append("내 이슈")
-    else:
-        filter_data = {
-            "assignee": {"isMe": {"eq": True}},
-            "parent": {"id": {"eq": parent_uuid}},
-            "state": {"name": {"in": valid_states}},
-        }
-        view = create_view(my_view_name, team_id, filter_data)
-        slug = view.get("slugId") or view["id"]
-        views.append({"name": "내 이슈", "url": f"https://linear.app/buzzvil/view/{slug}"})
-        created.append("내 이슈")
+    filter_data = {
+        "assignee": {"isMe": {"eq": True}},
+        "parent": {"id": {"in": child_parent_ids}},
+        "state": {"name": {"in": valid_states}},
+    }
+    view = create_view(my_view_name, team_id, filter_data)
+    slug = view.get("slugId") or view["id"]
+    views.append({"name": "내 이슈", "url": f"https://linear.app/buzzvil/view/{slug}"})
+    created.append("내 이슈")
 
     return {"created": created, "skipped": skipped, "views": views}
 
