@@ -419,8 +419,9 @@ def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
         print(f"      ⚠ {assignee_name} slack_id 미설정 — 전송 건너뜀")
         return
 
+    notifier = SlackNotifier()
+
     try:
-        notifier = SlackNotifier()
         notifier.send_monitoring_dm(
             slack_id=manager_slack_id,
             monitoring_cards=monitoring_cards,
@@ -428,6 +429,23 @@ def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
     except Exception as e:
         print(f"  ✗ 운영모니터링 DM 실패: {e}")
         errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+
+    # ── QA 라벨 누락 이슈 체크 ──
+    try:
+        from src.linear_client import LinearClient
+        linear_name = manager_cfg.get("linear_name", assignee_name)
+        qa_labels = config.get("linear", {}).get("qa_labels", ["QA"])
+        missing = LinearClient().get_assigned_issues_without_label(linear_name, qa_labels)
+        if missing:
+            print(f"  ⚠ QA 라벨 누락 이슈 {len(missing)}건 감지")
+            notifier.send_missing_label_dm(
+                slack_id=manager_slack_id,
+                issues=missing,
+                label_name=qa_labels[0],
+                assignee_name=assignee_name,
+            )
+    except Exception as e:
+        print(f"  ⚠ QA 라벨 누락 체크 실패: {e}")
 
     _notify_errors(config, errors)
     print("─" * 50)

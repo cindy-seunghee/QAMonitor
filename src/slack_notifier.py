@@ -694,6 +694,40 @@ class SlackNotifier:
         except SlackApiError as e:
             print(f"  ✗ 운영모니터링 DM 전송 실패: {e.response['error']}")
 
+    def send_missing_label_dm(
+        self, slack_id: str, issues: list[dict], label_name: str,
+        assignee_name: str = "",
+    ) -> None:
+        """QA 라벨이 누락된 할당 이슈 목록을 DM으로 보낸다."""
+        def _format_issue(issue: dict) -> str:
+            labels = [n["name"] for n in issue.get("labels", {}).get("nodes", [])]
+            label_text = f" (`{'`, `'.join(labels)}`)" if labels else ""
+            return f"\u2022 <{issue['url']}|{issue['identifier']}> : {issue['title']}{label_text}"
+
+        issue_lines = "\n".join(_format_issue(issue) for issue in issues)
+        who = assignee_name or "담당자"
+        text = (
+            f":warning: {who}에게 할당된 QA카드 중 *{label_name}* 라벨이 없는 건이 "
+            f"*{len(issues)}건* 있습니다.\n\n{issue_lines}"
+        )
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"QA 라벨 누락: {len(issues)}건",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  ✓ QA 라벨 누락 안내 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  ✗ QA 라벨 누락 안내 DM 전송 실패: {e.response['error']}")
+
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 
     def test_connection(self) -> bool:
