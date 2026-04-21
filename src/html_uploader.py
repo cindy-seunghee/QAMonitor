@@ -37,6 +37,7 @@ def upload_dashboard(file_path: str, filename: str = None) -> Optional[str]:
                 "content": (None, content_b64),
                 "filename": (None, filename),
             },
+            timeout=30,
         )
         resp.raise_for_status()
         data = resp.json()

@@ -98,7 +98,7 @@ def analyze(issues: list[dict], config: dict) -> dict:
     platform = _platform_breakdown(issues)
     critical = _critical_issues(open_bugs)
     recommendations = _generate_recommendations(
-        open_bugs, critical, progress, platform, exit_cfg, release_date_str
+        open_bugs, critical, progress, platform, release_date_str
     )
 
     return {
@@ -361,7 +361,6 @@ def _generate_recommendations(
     critical: list[dict],
     progress: dict,
     platform: dict,
-    exit_cfg: dict,
     release_date_str: str,
 ) -> dict:
     """

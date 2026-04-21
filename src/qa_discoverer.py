@@ -186,7 +186,6 @@ def _read_block_details(worksheet, test_phase: str) -> list[dict] | None:
     """TC시트에서 Block 케이스를 스캔하여 이슈번호별 건수를 집계한다.
     Returns: [{"issue": "SUP-1841", "count": 5}, ...] | None
     """
-    import re
     try:
         all_vals = worksheet.get_all_values()
         if not all_vals:
@@ -301,7 +300,7 @@ def _find_progress_by_stats_table(
     return None
 
 
-def fetch_test_progress(qa_card: dict, test_phase: str = "", cell: str = "K14") -> dict:
+def fetch_test_progress(qa_card: dict, test_phase: str = "") -> dict:
     """
     QA카드의 테스트케이스 구글시트에서 진행률(%)을 읽어온다.
     서비스 계정 인증으로 비공개 시트도 접근 가능.
@@ -700,11 +699,7 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
 
     # 단계별 진행률 셀 분기
     linear_cfg = config.get("linear", {})
-    if test_phases["current_phase"] == "리그레션테스트":
-        progress_cell = linear_cfg.get("regression_progress_cell", "L14")
-    else:
-        progress_cell = linear_cfg.get("test_progress_cell", "K14")
-    sheet_result = fetch_test_progress(qa_card, test_phase=test_phases["current_phase"], cell=progress_cell)
+    sheet_result = fetch_test_progress(qa_card, test_phase=test_phases["current_phase"])
 
     if sheet_result["value"] is not None:
         data["progress"]["pct"] = sheet_result["value"]
