@@ -107,7 +107,7 @@ def analyze(issues: list[dict], config: dict) -> dict:
         "release_date": release_date_str,
         "dday": dday,
         "progress": progress,
-        "open_bugs": open_bugs,
+        "open_bugs": sorted(open_bugs, key=lambda i: PRIORITY_ORDER.get(i.get("priorityLabel", "No priority"), 99)),
         "open_bug_count": len(open_bugs),
         "dev_done_bugs": dev_done_bugs,
         "dev_done_bug_count": len(dev_done_bugs),
