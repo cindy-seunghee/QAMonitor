@@ -599,7 +599,7 @@ class SlackNotifier:
     def send_sheet_access_dm(self, slack_id: str, qa_card_title: str, card_url: str = "") -> None:
         """TC시트 접근 권한이 없을 때 QA카드 assignee에게 안내 DM을 보낸다."""
         SA_EMAIL = "qa-monitor-bot@qa-monitor-bot.iam.gserviceaccount.com"
-        card_link = f"<{card_url}|{qa_card_title}>" if card_url else f"*{qa_card_title}*"
+        card_link = f"<{card_url}|{_slack_escape(qa_card_title)}>" if card_url else f"*{_slack_escape(qa_card_title)}*"
         blocks = [
             {
                 "type": "header",
@@ -634,7 +634,7 @@ class SlackNotifier:
 
     def send_sheet_missing_dm(self, slack_id: str, qa_card_title: str, card_url: str = "") -> None:
         """TC시트 링크가 QA카드에 첨부되지 않았을 때 assignee에게 안내 DM을 보낸다."""
-        card_link = f"<{card_url}|{qa_card_title}>" if card_url else f"*{qa_card_title}*"
+        card_link = f"<{card_url}|{_slack_escape(qa_card_title)}>" if card_url else f"*{_slack_escape(qa_card_title)}*"
         blocks = [
             {
                 "type": "header",
@@ -728,6 +728,179 @@ class SlackNotifier:
         except SlackApiError as e:
             print(f"  ✗ QA 라벨 누락 안내 DM 전송 실패: {e.response['error']}")
 
+    # ── PRD/Figma 변경 알림 ──────────────────────────────────────────────
+
+    def send_change_alert_dm(
+        self, slack_id: str, card_result: dict,
+    ) -> None:
+        """PRD 또는 Figma 변경 사항을 QA 담당자에게 DM으로 발송.
+        card_result: watch_card_changes()의 반환값
+        """
+        card_id = card_result["card_id"]
+        title = card_result["title"]
+        card_url = card_result["card_url"]
+        prd_change = card_result.get("prd_change")
+        figma_changes = card_result.get("figma_changes", [])
+
+        blocks: list[dict] = []
+
+        # 헤더
+        blocks.append({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"\U0001f514 TC 작성 기간 변경 감지 — {card_id}",
+                "emoji": True,
+            },
+        })
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*<{card_url}|{_slack_escape(title)}>*",
+            },
+        })
+        blocks.append({"type": "divider"})
+
+        # PRD (Linear description) 변경
+        if prd_change:
+            diff_text = prd_change["diff_text"]
+            # Slack 코드블록 (최대 2900자 — Block Kit 제한)
+            if len(diff_text) > 2900:
+                diff_text = diff_text[:2900] + "\n... (생략)"
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*PRD (Description) 변경*\n```\n{diff_text}\n```",
+                },
+            })
+
+        # Figma 변경
+        if figma_changes:
+            for fc in figma_changes:
+                changes = fc["changes"]
+                figma_url = fc.get("url", "")
+
+                added = [c for c in changes if c["type"] == "added"]
+                removed = [c for c in changes if c["type"] == "removed"]
+                modified = [c for c in changes if c["type"] == "modified"]
+
+                lines = []
+                if added:
+                    lines.append("*[추가]*")
+                    for c in added[:10]:
+                        lines.append(f'  + "{c["name"]}" — {c["detail"]}')
+                    if len(added) > 10:
+                        lines.append(f"  _... 외 {len(added) - 10}건_")
+                if removed:
+                    lines.append("*[삭제]*")
+                    for c in removed[:10]:
+                        lines.append(f'  - "{c["name"]}"')
+                    if len(removed) > 10:
+                        lines.append(f"  _... 외 {len(removed) - 10}건_")
+                if modified:
+                    lines.append("*[변경]*")
+                    for c in modified[:10]:
+                        lines.append(f'  ~ "{c["name"]}" — {c["detail"]}')
+                    if len(modified) > 10:
+                        lines.append(f"  _... 외 {len(modified) - 10}건_")
+
+                figma_text = "\n".join(lines)
+                if figma_url:
+                    figma_text += f"\n\n<{figma_url}|Figma에서 보기>"
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Figma 디자인 변경*\n{figma_text}",
+                    },
+                })
+
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": "_TC 작성 기간 중 감지된 변경입니다. TC 반영 여부를 확인해주세요._",
+            }],
+        })
+
+        summary_parts = []
+        if prd_change:
+            summary_parts.append("PRD")
+        if figma_changes:
+            summary_parts.append("Figma")
+        summary = " + ".join(summary_parts)
+
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"{summary} 변경 감지: {card_id} {title}",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  \u2713 변경 알림 DM 전송 완료: {slack_id} ({summary})")
+        except SlackApiError as e:
+            print(f"  \u2717 변경 알림 DM 전송 실패: {e.response['error']}")
+
+    # ── PRD/Figma 링크 누락 안내 ──────────────────────────────────────────
+
+    def send_missing_links_dm(
+        self, slack_id: str, missing_cards: list[dict],
+    ) -> None:
+        """TC 작성 기간인 QA카드에 PRD/Figma 링크가 없을 때 안내 DM (복수 카드 통합).
+        missing_cards: [{"card_id": str, "title": str, "missing_prd": bool, "missing_figma": bool}, ...]
+        """
+        prd_cards = []
+        figma_cards = []
+
+        for card in missing_cards:
+            card_id = card["card_id"]
+            title = card["title"]
+            card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+            card_link = f"<{card_url}|{card_id}: {_slack_escape(title)}>"
+            if card["missing_prd"]:
+                prd_cards.append(card_link)
+            if card["missing_figma"]:
+                figma_cards.append(card_link)
+
+        guide = "변경 알림을 받으려면 QA카드 Attachments에 링크를 추가해주세요."
+        if prd_cards:
+            guide += "\n_PRD가 원래 없는 경우, Description 특이사항에 `PRD 없음`을 기재하면 이 알림이 발송되지 않습니다._"
+
+        lines = []
+        if prd_cards:
+            lines.append("\u2022 *PRD 링크*")
+            for cl in prd_cards:
+                lines.append(f"    \u25E6 {cl}")
+        if figma_cards:
+            lines.append("\u2022 *Figma 디자인 링크*")
+            for cl in figma_cards:
+                lines.append(f"    \u25E6 {cl}")
+
+        text = f":bell: *TC 작성 기간 링크 안내*\n{guide}\n\n" + "\n".join(lines)
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            },
+        ]
+
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"PRD/Figma 링크 안내: {len(missing_cards)}건",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  \u2713 링크 안내 DM 전송 완료: {slack_id} ({len(missing_cards)}건)")
+        except SlackApiError as e:
+            print(f"  \u2717 링크 안내 DM 전송 실패: {e.response['error']}")
+
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 
     def test_connection(self) -> bool:
@@ -738,6 +911,11 @@ class SlackNotifier:
         except SlackApiError as e:
             print(f"  Slack 연결 실패: {e.response['error']}")
             return False
+
+
+def _slack_escape(text: str) -> str:
+    """Slack mrkdwn 링크 내 특수문자 이스케이프 (&, <, >)"""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _text_bar(pct: float, width: int = 10) -> str:
