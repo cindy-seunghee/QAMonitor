@@ -87,17 +87,40 @@ def _html_to_text(html: str) -> str:
     import html as html_module
     text = html
 
-    # 헤딩 → Markdown 스타일
+    # 블록 요소 앞에 줄바꿈 보장
+    for tag in ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr", "table", "ul", "ol"]:
+        text = re.sub(rf"<{tag}(\s|>)", rf"\n<{tag}\1", text)
+
+    # 헤딩 → Markdown 스타일 (줄바꿈 포함)
     for i in range(1, 7):
-        text = re.sub(rf"<h{i}[^>]*>(.*?)</h{i}>", rf"{'#' * i} \1", text, flags=re.DOTALL)
+        text = re.sub(
+            rf"<h{i}[^>]*>(.*?)</h{i}>",
+            lambda m, level=i: f"\n{'#' * level} {m.group(1).strip()}\n",
+            text, flags=re.DOTALL,
+        )
 
     # 리스트 아이템
-    text = re.sub(r"<li[^>]*>(.*?)</li>", r"* \1", text, flags=re.DOTALL)
+    text = re.sub(r"<li[^>]*>(.*?)</li>", r"\n* \1", text, flags=re.DOTALL)
 
-    # 테이블 셀
-    text = re.sub(r"<t[hd][^>]*>(.*?)</t[hd]>", r"| \1 ", text, flags=re.DOTALL)
-    text = re.sub(r"<tr[^>]*>", "", text)
-    text = re.sub(r"</tr>", "|", text)
+    # 테이블 행 → 각 셀을 " | "로 연결하여 한 줄로
+    def _table_row(m):
+        row_html = m.group(1)
+        cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row_html, re.DOTALL)
+        # 셀 내부 HTML 태그 제거 + 줄바꿈 제거 + 공백 정리
+        cleaned = []
+        for c in cells:
+            c = re.sub(r"<[^>]+>", "", c)
+            c = html_module.unescape(c)
+            c = c.replace("\n", " ").strip()
+            if c:
+                cleaned.append(c)
+        if not cleaned:
+            return ""
+        if all(c.startswith("--") for c in cleaned):
+            return ""
+        return "\n[표] " + " | ".join(cleaned)
+
+    text = re.sub(r"<tr[^>]*>(.*?)</tr>", _table_row, text, flags=re.DOTALL)
 
     # 줄바꿈 태그
     text = re.sub(r"<br\s*/?>", "\n", text)
@@ -195,12 +218,14 @@ def check_description_change(qa_card: dict) -> dict | None:
 
 
 def _strip_markdown(text: str) -> str:
-    """Markdown 특수문자 제거 (\\, *, _, #, 등)"""
+    """Markdown 특수문자 제거 (\\, *, _, #, | 등)"""
     text = text.replace("\\", "")
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)  # **bold**
     text = text.replace("*", "").replace("_", "")
     # 헤딩 마크 제거 (### 공통 사항 → 공통 사항)
-    text = re.sub(r"^#{1,6}\s*", "", text.strip())
+    text = re.sub(r"#{1,6}\s*", "", text)
+    # 테이블 파이프 제거
+    text = text.replace("||", "").replace("|", "")
     text = text.strip()
     return text
 
@@ -223,14 +248,25 @@ def _find_heading_path(lines: list[str], line_idx: int) -> str:
 
 
 def _parse_table_row(line: str) -> tuple[str, str] | None:
-    """테이블 행에서 (라벨, 값) 추출. '| 제목 | 두두두둥 |' → ('제목', '두두두둥')"""
-    if not line.strip().startswith("|"):
+    """테이블 행에서 (라벨, 값) 추출.
+    Linear: '| 제목 | 두두두둥 |' → ('제목', '두두두둥')
+    Confluence: '[표] 제목 | 두두두둥' → ('제목', '두두두둥')
+    """
+    stripped = line.strip()
+    # Confluence [표] 형식
+    if stripped.startswith("[표]"):
+        parts = stripped[3:].split("|")
+        parts = [p.strip() for p in parts if p.strip()]
+        if len(parts) >= 2:
+            return (_strip_markdown(parts[0]), _strip_markdown(parts[1]))
+        return None
+    # Linear | ... | 형식
+    if not stripped.startswith("|"):
         return None
     cells = [_strip_markdown(c) for c in line.split("|")]
     cells = [c for c in cells if c]
     if len(cells) < 2:
         return None
-    # 구분선 제외
     if cells[0].startswith("--"):
         return None
     return (cells[0], cells[1])
@@ -244,6 +280,9 @@ def _clean_line(line: str) -> str:
     # 헤딩 라인 자체는 섹션 경로로 쓰므로 내용에서 제외
     if text.startswith("#"):
         return ""
+    # [표] 행은 테이블 파싱에서 처리하므로 strip_markdown은 적용하되 | 보존
+    if text.startswith("[표]"):
+        return text  # _extract_change_detail에서 _parse_table_row로 처리
     return _strip_markdown(text)
 
 
