@@ -730,12 +730,8 @@ class SlackNotifier:
 
     # ── PRD/Figma 변경 알림 ──────────────────────────────────────────────
 
-    def send_change_alert_dm(
-        self, slack_id: str, card_result: dict,
-    ) -> None:
-        """PRD 또는 Figma 변경 사항을 QA 담당자에게 DM으로 발송.
-        card_result: watch_card_changes()의 반환값
-        """
+    def _build_card_change_blocks(self, card_result: dict) -> list[dict]:
+        """카드 1개의 변경 사항을 블록으로 구성."""
         card_id = card_result["card_id"]
         title = card_result["title"]
         card_url = card_result["card_url"]
@@ -744,37 +740,27 @@ class SlackNotifier:
 
         blocks: list[dict] = []
 
-        # 헤더
-        blocks.append({
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": f"\U0001f514 TC 작성 기간 변경 감지 — {card_id}",
-                "emoji": True,
-            },
-        })
+        # 카드 헤더
         blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*<{card_url}|{_slack_escape(title)}>*",
+                "text": f"\u2022 *<{card_url}|{card_id}: {_slack_escape(title)}>*",
             },
         })
-        blocks.append({"type": "divider"})
 
-        # PRD (Linear description) 변경
+        # PRD 변경
         if prd_change:
             diff_text = prd_change["diff_text"]
-            prd_id = prd_change.get("prd_id", "")
             prd_url = prd_change.get("card_url", "")
-            prd_label = f" (<{prd_url}|{prd_id}>)" if prd_url and prd_id else ""
+            prd_link = f" (<{prd_url}|PRD 링크>)" if prd_url else ""
             if len(diff_text) > 2900:
                 diff_text = diff_text[:2900] + "\n... (생략)"
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*PRD 변경*{prd_label}\n{diff_text}",
+                    "text": f"*PRD 변경*{prd_link}\n{diff_text}",
                 },
             })
 
@@ -791,62 +777,106 @@ class SlackNotifier:
                 lines = []
                 if added:
                     lines.append("*[추가]*")
-                    for c in added[:10]:
-                        lines.append(f'  + "{c["name"]}" — {c["detail"]}')
-                    if len(added) > 10:
-                        lines.append(f"  _... 외 {len(added) - 10}건_")
+                    for c in added:
+                        lines.append(f'  + "{c["name"]}" \u2014 {c["detail"]}')
                 if removed:
                     lines.append("*[삭제]*")
-                    for c in removed[:10]:
+                    for c in removed:
                         lines.append(f'  - "{c["name"]}"')
-                    if len(removed) > 10:
-                        lines.append(f"  _... 외 {len(removed) - 10}건_")
                 if modified:
                     lines.append("*[변경]*")
-                    for c in modified[:10]:
-                        lines.append(f'  ~ "{c["name"]}" — {c["detail"]}')
-                    if len(modified) > 10:
-                        lines.append(f"  _... 외 {len(modified) - 10}건_")
+                    for c in modified:
+                        lines.append(f'  ~ "{c["name"]}" \u2014 {c["detail"]}')
 
                 figma_text = "\n".join(lines)
-                if figma_url:
-                    figma_text += f"\n\n<{figma_url}|Figma에서 보기>"
+                figma_link = f" (<{figma_url}|디자인 링크>)" if figma_url else ""
 
                 blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*Figma 디자인 변경*\n{figma_text}",
+                        "text": f"*Figma 디자인 변경*{figma_link}\n{figma_text}",
                     },
                 })
 
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": "_TC 작성 기간 중 감지된 변경입니다. TC 반영 여부를 확인해주세요._",
-            }],
-        })
+        return blocks
 
-        summary_parts = []
-        if prd_change:
-            summary_parts.append("PRD")
-        if figma_changes:
-            summary_parts.append("Figma")
-        summary = " + ".join(summary_parts)
+    def send_change_alert_dm(
+        self, slack_id: str, card_results: list[dict],
+    ) -> None:
+        """PRD/Figma 변경 사항을 QA 담당자에게 DM으로 발송 (복수 카드 통합).
+        50블록 이내면 1건의 DM, 초과 시 카드별 분리 발송.
+        card_results: [watch_card_changes()의 반환값, ...]
+        """
+        MAX_BLOCKS = 50
 
-        try:
-            self.client.chat_postMessage(
-                channel=slack_id,
-                blocks=blocks,
-                text=f"{summary} 변경 감지: {card_id} {title}",
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-            print(f"  \u2713 변경 알림 DM 전송 완료: {slack_id} ({summary})")
-        except SlackApiError as e:
-            print(f"  \u2717 변경 알림 DM 전송 실패: {e.response['error']}")
+        # 헤더 + 푸터 블록
+        header = {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "\U0001f514 PRD/\ub514\uc790\uc778 \ubcc0\uacbd \uc54c\ub9bc",
+                "emoji": True,
+            },
+        }
+        footer_blocks = [
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": "_TC 작성 기간 중 감지된 변경입니다. TC 반영 여부를 확인해주세요._",
+                }],
+            },
+        ]
+
+        # 카드별 블록 생성
+        card_block_groups = []
+        for result in card_results:
+            card_blocks = self._build_card_change_blocks(result)
+            card_block_groups.append((result, card_blocks))
+
+        # 전체 블록 수 계산 (헤더 1 + 카드별 블록 + 구분선 + 푸터 2)
+        total = 1 + sum(len(b) + 1 for _, b in card_block_groups) + len(footer_blocks)
+
+        if total <= MAX_BLOCKS:
+            # 통합 발송
+            blocks = [header]
+            for i, (result, card_blocks) in enumerate(card_block_groups):
+                if i > 0:
+                    blocks.append({"type": "divider"})
+                blocks.extend(card_blocks)
+            blocks.extend(footer_blocks)
+
+            card_ids = ", ".join(r["card_id"] for r in card_results)
+            try:
+                self.client.chat_postMessage(
+                    channel=slack_id,
+                    blocks=blocks,
+                    text=f"PRD/디자인 변경 알림: {card_ids}",
+                    unfurl_links=False,
+                    unfurl_media=False,
+                )
+                print(f"  \u2713 변경 알림 DM 전송 완료: {slack_id} ({len(card_results)}건 통합)")
+            except SlackApiError as e:
+                print(f"  \u2717 변경 알림 DM 전송 실패: {e.response['error']}")
+        else:
+            # 카드별 분리 발송
+            for result, card_blocks in card_block_groups:
+                blocks = [header]
+                blocks.extend(card_blocks)
+                blocks.extend(footer_blocks)
+                try:
+                    self.client.chat_postMessage(
+                        channel=slack_id,
+                        blocks=blocks,
+                        text=f"PRD/디자인 변경 알림: {result['card_id']}",
+                        unfurl_links=False,
+                        unfurl_media=False,
+                    )
+                    print(f"  \u2713 변경 알림 DM 전송 완료: {slack_id} ({result['card_id']})")
+                except SlackApiError as e:
+                    print(f"  \u2717 변경 알림 DM 전송 실패: {e.response['error']}")
 
     # ── PRD/Figma 링크 누락 안내 ──────────────────────────────────────────
 
