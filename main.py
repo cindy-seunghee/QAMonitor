@@ -433,17 +433,20 @@ def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
     # ── QA 라벨 누락 이슈 체크 ──
     try:
         from src.linear_client import LinearClient
-        linear_name = manager_cfg.get("linear_name", assignee_name)
-        qa_labels = config.get("linear", {}).get("qa_labels", ["QA"])
-        missing = LinearClient().get_assigned_issues_without_label(linear_name, qa_labels)
-        if missing:
-            print(f"  ⚠ QA 라벨 누락 이슈 {len(missing)}건 감지")
-            notifier.send_missing_label_dm(
-                slack_id=manager_slack_id,
-                issues=missing,
-                label_name=qa_labels[0],
-                assignee_name=assignee_name,
-            )
+        linear_name = manager_cfg.get("linear_name")
+        if not linear_name:
+            print(f"  ⚠ {assignee_name}의 linear_name 미설정 — 라벨 체크 건너뜀")
+        else:
+            qa_labels = config.get("linear", {}).get("qa_labels", ["QA"])
+            missing = LinearClient().get_assigned_issues_without_label(linear_name, qa_labels)
+            if missing:
+                print(f"  ⚠ QA 라벨 누락 이슈 {len(missing)}건 감지")
+                notifier.send_missing_label_dm(
+                    slack_id=manager_slack_id,
+                    issues=missing,
+                    label_name=", ".join(qa_labels),
+                    assignee_name=assignee_name,
+                )
     except Exception as e:
         print(f"  ⚠ QA 라벨 누락 체크 실패: {e}")
 
@@ -534,6 +537,118 @@ def run_single_card(config: dict, card_id: str) -> None:
     print(f"{card_id} 완료!")
 
 
+def watch_changes(config: dict, assignee_name: str = "") -> None:
+    """TC 작성 기간 중 PRD/Figma 변경 감지 + Slack 알림 발송."""
+    from src.qa_discoverer import (
+        discover_qa_cards, get_active_cards,
+        parse_test_phases, resolve_user_map,
+    )
+    from src.change_watcher import should_watch, watch_card_changes, check_missing_links
+    from src.slack_notifier import SlackNotifier
+    from datetime import datetime, timezone, timedelta
+
+    errors: list[dict] = []
+    kst = timezone(timedelta(hours=9))
+    is_morning = datetime.now(kst).hour < 12
+
+    print("─" * 50)
+    target = assignee_name or "전체"
+    print(f"[변경 감시] {target} — PRD/Figma 변경 체크 ({'오전' if is_morning else '오후'})")
+
+    try:
+        cards_by_manager = discover_qa_cards(config)
+    except Exception as e:
+        print(f"  ✗ QA카드 조회 실패: {e}")
+        errors.append({"step": "QA카드 조회", "detail": str(e)})
+        _notify_errors(config, errors)
+        return
+
+    slack_cfg = config.get("slack", {})
+    user_map = resolve_user_map(slack_cfg.get("user_map") or {})
+    notifier = None
+
+    for manager_name, cards in cards_by_manager.items():
+        # 특정 담당자만 실행
+        if assignee_name and manager_name != assignee_name:
+            continue
+
+        active = get_active_cards(cards)
+        if not active:
+            continue
+
+        # TC 작성 기간인 카드만 필터
+        watch_cards = []
+        for qa_card in active:
+            test_phases = parse_test_phases(qa_card)
+            if should_watch(test_phases):
+                watch_cards.append(qa_card)
+                print(f"  → {qa_card['identifier']}: {qa_card['title']} ({test_phases['current_phase']})")
+            else:
+                print(f"  → {qa_card['identifier']}: {qa_card['title']} ({test_phases['current_phase']}) — 감시 대상 아님")
+
+        if not watch_cards:
+            print(f"  {manager_name}: TC 작성 기간인 카드 없음 — 건너뜀")
+            continue
+
+        # 매니저 slack_id
+        manager_cfg = user_map.get(manager_name, {})
+        manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+
+        # 오전: PRD/Figma 링크 누락 안내 (매니저별 1건으로 통합)
+        if is_morning and manager_slack_id:
+            missing_cards = []
+            for qa_card in watch_cards:
+                missing = check_missing_links(qa_card)
+                if missing["missing_prd"] or missing["missing_figma"]:
+                    missing_cards.append({
+                        "card_id": qa_card["identifier"],
+                        "title": qa_card.get("title", ""),
+                        "missing_prd": missing["missing_prd"],
+                        "missing_figma": missing["missing_figma"],
+                    })
+                    print(f"      링크 안내 대상: {qa_card['identifier']} — PRD={'누락' if missing['missing_prd'] else 'OK'}, Figma={'누락' if missing['missing_figma'] else 'OK'}")
+            if missing_cards:
+                if not notifier:
+                    notifier = SlackNotifier()
+                notifier.send_missing_links_dm(
+                    slack_id=manager_slack_id,
+                    missing_cards=missing_cards,
+                )
+
+        for qa_card in watch_cards:
+            card_id = qa_card["identifier"]
+            try:
+                # 변경 감지
+                result = watch_card_changes(qa_card, config)
+
+                has_change = result["prd_change"] or result["figma_changes"]
+                if has_change:
+                    print(f"      변경 감지: PRD={'O' if result['prd_change'] else 'X'}, Figma={len(result['figma_changes'])}건")
+                    if manager_slack_id:
+                        if not notifier:
+                            notifier = SlackNotifier()
+                        notifier.send_change_alert_dm(
+                            slack_id=manager_slack_id,
+                            card_result=result,
+                        )
+                    else:
+                        print(f"      ⚠ {manager_name} slack_id 미설정 — 알림 건너뜀")
+                else:
+                    print(f"      변경 없음")
+
+            except Exception as e:
+                msg = f"{card_id} 변경 감지 실패: {e}"
+                print(f"  ✗ {msg}")
+                errors.append({"step": f"변경 감시 ({card_id})", "detail": str(e)})
+
+    _notify_errors(config, errors)
+    print("─" * 50)
+    if errors:
+        print(f"변경 감시 완료 (오류 {len(errors)}건)")
+    else:
+        print("변경 감시 완료!")
+
+
 def delete_slack_message(msg_url: str) -> None:
     """Slack 메시지 링크에서 채널ID와 timestamp를 추출하여 메시지를 삭제한다."""
     import re
@@ -577,6 +692,8 @@ def main():
     group.add_argument("--run-for", metavar="NAME", help="특정 QAM 개인 메시지만 즉시 전송")
     group.add_argument("--run-monitoring", metavar="NAME", help="특정 QAM 운영모니터링 DM만 즉시 전송")
     group.add_argument("--run-card", metavar="CARD_ID", help="특정 QA카드만 실행 (예: SUP-1557)")
+    group.add_argument("--watch-changes", nargs="?", const="", metavar="NAME",
+                       help="PRD/Figma 변경 감시 (TC 작성 기간 카드 대상, NAME 생략 시 전체)")
     group.add_argument("--delete-msg", metavar="URL", help="봇이 보낸 Slack 메시지 삭제 (메시지 링크)")
     group.add_argument("--dashboard-only", action="store_true", help="대시보드만 생성")
     group.add_argument("--schedule", action="store_true", help="스케줄러 시작")
@@ -615,6 +732,12 @@ def main():
                 print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
                 return
             run_monitoring_for_assignee(config, args.run_monitoring)
+
+        elif args.watch_changes is not None:
+            if _is_holiday():
+                print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
+                return
+            watch_changes(config, args.watch_changes)
 
         elif args.run_card:
             run_single_card(config, args.run_card)  # 수동 테스트용이므로 공휴일 체크 안 함

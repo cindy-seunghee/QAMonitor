@@ -7,6 +7,9 @@ on:
     - cron: '0 5 * * 1-5'   # 평일 14:00 KST → 테스트 진행상황 (Cindy+Liana)
     - cron: '0 21 * * 0-4'  # 평일 06:00 KST → 운영모니터링 (Cindy+Liana)
 
+    - cron: '0 1 * * 1-5'   # 평일 10:00 KST → PRD/Figma 변경 감시
+    - cron: '0 6 * * 1-5'   # 평일 15:00 KST → PRD/Figma 변경 감시
+
   # 수동 실행 (GitHub Actions 탭에서 "Run workflow" 버튼)
   workflow_dispatch:
     inputs:
@@ -56,6 +59,44 @@ jobs:
           name: qa-dashboard
           path: output/
           retention-days: 30
+
+  # PRD/Figma 변경 감시 (평일 10:00, 15:00 KST)
+  watch-changes:
+    if: github.event.schedule == '0 1 * * 1-5' || github.event.schedule == '0 6 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
+
+      - name: Restore snapshots cache
+        uses: actions/cache@v4
+        with:
+          path: snapshots
+          key: change-snapshots-${{ github.run_id }}
+          restore-keys: |
+            change-snapshots-
+
+      - name: Run change watcher
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          CONFLUENCE_TOKEN: ${{ secrets.CONFLUENCE_TOKEN }}
+        run: python main.py --watch-changes
 
   # Cindy (스케줄 또는 수동)
   cindy:
