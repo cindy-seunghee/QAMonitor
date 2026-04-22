@@ -615,31 +615,32 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
                     missing_cards=missing_cards,
                 )
 
+        # 변경 감지 — 매니저별 결과 수집 후 통합 발송
+        changed_results = []
         for qa_card in watch_cards:
             card_id = qa_card["identifier"]
             try:
-                # 변경 감지
                 result = watch_card_changes(qa_card, config)
-
                 has_change = result["prd_change"] or result["figma_changes"]
                 if has_change:
                     print(f"      변경 감지: PRD={'O' if result['prd_change'] else 'X'}, Figma={len(result['figma_changes'])}건")
-                    if manager_slack_id:
-                        if not notifier:
-                            notifier = SlackNotifier()
-                        notifier.send_change_alert_dm(
-                            slack_id=manager_slack_id,
-                            card_result=result,
-                        )
-                    else:
-                        print(f"      ⚠ {manager_name} slack_id 미설정 — 알림 건너뜀")
+                    changed_results.append(result)
                 else:
                     print(f"      변경 없음")
-
             except Exception as e:
                 msg = f"{card_id} 변경 감지 실패: {e}"
                 print(f"  ✗ {msg}")
                 errors.append({"step": f"변경 감시 ({card_id})", "detail": str(e)})
+
+        if changed_results and manager_slack_id:
+            if not notifier:
+                notifier = SlackNotifier()
+            notifier.send_change_alert_dm(
+                slack_id=manager_slack_id,
+                card_results=changed_results,
+            )
+        elif changed_results:
+            print(f"      ⚠ {manager_name} slack_id 미설정 — 알림 건너뜀")
 
     _notify_errors(config, errors)
     print("─" * 50)
