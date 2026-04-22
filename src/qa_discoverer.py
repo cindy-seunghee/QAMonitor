@@ -422,24 +422,32 @@ def _parse_date_flexible(text: str, default_year: int = None) -> str | None:
     return None
 
 
-def parse_release_date(qa_card: dict) -> str | None:
-    """QA카드 Description에서 '릴리즈' 날짜를 추출한다. YYYY-MM-DD 반환."""
+def parse_release_dates(qa_card: dict) -> list[dict]:
+    """QA카드 Description에서 릴리즈/배포 날짜를 모두 추출한다.
+
+    Returns: [{"label": "허니스크린 배포", "date": "2026-04-30"}, ...]
+             가장 빠른 날짜가 첫 번째.
+    """
     description = qa_card.get("description") or ""
+    dates = []
     for line in description.splitlines():
         stripped = line.strip().lstrip("*").strip()
-        # '릴리즈 : ...' 또는 '릴리즈: ...' 패턴
-        if re.match(r"릴리즈\s*:", stripped):
-            date_part = stripped.split(":", 1)[1].strip()
-            parsed = _parse_date_flexible(date_part)
+        # '릴리즈', '배포' 키워드가 포함된 라인 (앞에 다른 텍스트 허용)
+        if re.search(r"(릴리즈|배포)\s*:", stripped, re.IGNORECASE):
+            label, _, date_text = stripped.partition(":")
+            label = label.strip()
+            parsed = _parse_date_flexible(date_text.strip())
             if parsed:
-                return parsed
-        # '배포 : ...' 패턴도 지원
-        if re.match(r"(sdk\s*)?배포\s*:", stripped, re.IGNORECASE):
-            date_part = stripped.split(":", 1)[1].strip()
-            parsed = _parse_date_flexible(date_part)
-            if parsed:
-                return parsed
-    return None
+                dates.append({"label": label, "date": parsed})
+    # 가장 빠른 날짜 순 정렬
+    dates.sort(key=lambda d: d["date"])
+    return dates
+
+
+def parse_release_date(qa_card: dict) -> str | None:
+    """QA카드 Description에서 가장 빠른 릴리즈/배포 날짜를 추출. YYYY-MM-DD 반환."""
+    dates = parse_release_dates(qa_card)
+    return dates[0]["date"] if dates else None
 
 
 def _parse_date_range(text: str) -> tuple[str | None, str | None]:
@@ -681,14 +689,17 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
     client = LinearClient()
     issues = client.get_child_issues(qa_card["id"])
 
-    # Description에서 릴리즈 날짜 추출
-    release_date = parse_release_date(qa_card)
+    # Description에서 릴리즈/배포 날짜 추출
+    release_dates = parse_release_dates(qa_card)
+    release_date = release_dates[0]["date"] if release_dates else None
     if release_date:
         config = {**config, "project": {**config.get("project", {}), "release_date": release_date}}
-        print(f"      릴리즈 날짜 (Description): {release_date}")
+        for rd in release_dates:
+            print(f"      배포 일정 (Description): {rd['label']} — {rd['date']}")
 
     data = analyze(issues, config)
     data["project_name"] = qa_card["title"]
+    data["release_dates"] = release_dates
     data["qa_card"] = qa_card
 
     # 테스트 단계 판단
