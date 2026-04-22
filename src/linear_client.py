@@ -262,6 +262,7 @@ class LinearClient:
                 id
                 identifier
                 title
+                description
                 state {{ name }}
             }}
         }}

@@ -765,14 +765,16 @@ class SlackNotifier:
         # PRD (Linear description) 변경
         if prd_change:
             diff_text = prd_change["diff_text"]
-            # Slack 코드블록 (최대 2900자 — Block Kit 제한)
+            prd_id = prd_change.get("prd_id", "")
+            prd_url = prd_change.get("card_url", "")
+            prd_label = f" (<{prd_url}|{prd_id}>)" if prd_url and prd_id else ""
             if len(diff_text) > 2900:
                 diff_text = diff_text[:2900] + "\n... (생략)"
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*PRD (Description) 변경*\n```\n{diff_text}\n```",
+                    "text": f"*PRD 변경*{prd_label}\n{diff_text}",
                 },
             })
 

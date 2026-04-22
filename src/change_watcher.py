@@ -20,27 +20,153 @@ _FIGMA_URL_RE = re.compile(
 )
 
 
-# ── Linear Description 변경 감지 ─────────────────────────────────────────
+# ── PRD 소스 탐색 (Linear / Confluence) ──────────────────────────────────
+
+_LINEAR_ISSUE_RE = re.compile(r"linear\.app/[^/]+/issue/([A-Z]+-\d+)")
+_CONFLUENCE_PAGE_RE = re.compile(r"atlassian\.net/wiki/.*?/(?:pages|history)/(\d+)")
 
 
-def _snapshot_path_linear(card_id: str) -> Path:
-    return SNAPSHOT_DIR / f"linear_{card_id}.txt"
+def _find_prd_source(qa_card: dict) -> dict | None:
+    """QA카드 Attachments에서 PRD 소스를 찾는다.
+
+    Returns:
+      {"type": "linear", "identifier": "SUP-1982", "url": "..."} |
+      {"type": "confluence", "page_id": "4959633485", "url": "..."} |
+      None
+    """
+    attachments = qa_card.get("attachments", {}).get("nodes", [])
+    for att in attachments:
+        title = (att.get("title") or "").strip().lower()
+        url = att.get("url") or ""
+        if "prd" not in title:
+            continue
+        # Linear PRD
+        m = _LINEAR_ISSUE_RE.search(url)
+        if m:
+            return {"type": "linear", "identifier": m.group(1), "url": url}
+        # Confluence PRD
+        m = _CONFLUENCE_PAGE_RE.search(url)
+        if m:
+            return {"type": "confluence", "page_id": m.group(1), "url": url}
+    return None
+
+
+# ── Confluence 페이지 본문 조회 ───────────────────────────────────────────
+
+
+def _fetch_confluence_page(page_id: str) -> dict | None:
+    """Confluence REST API로 페이지 제목 + 본문을 조회.
+
+    Returns: {"title": str, "body": str} | None
+    """
+    email = os.environ.get("CONFLUENCE_EMAIL", "")
+    token = os.environ.get("CONFLUENCE_TOKEN", "")
+    if not email or not token:
+        print("      CONFLUENCE_EMAIL 또는 CONFLUENCE_TOKEN 미설정 — Confluence PRD 감지 건너뜀")
+        return None
+
+    domain = os.environ.get("CONFLUENCE_DOMAIN", "buzzvil.atlassian.net")
+    url = f"https://{domain}/wiki/api/v2/pages/{page_id}?body-format=storage"
+
+    resp = requests.get(url, auth=(email, token), timeout=30)
+    if resp.status_code != 200:
+        print(f"      Confluence API 오류 ({resp.status_code}): {resp.text[:200]}")
+        return None
+
+    data = resp.json()
+    title = data.get("title", "")
+    body_html = data.get("body", {}).get("storage", {}).get("value", "")
+
+    # HTML → 텍스트 변환 (간이 파싱)
+    body_text = _html_to_text(body_html)
+    return {"title": title, "body": body_text}
+
+
+def _html_to_text(html: str) -> str:
+    """Confluence storage format HTML을 텍스트로 변환."""
+    import html as html_module
+    text = html
+
+    # 헤딩 → Markdown 스타일
+    for i in range(1, 7):
+        text = re.sub(rf"<h{i}[^>]*>(.*?)</h{i}>", rf"{'#' * i} \1", text, flags=re.DOTALL)
+
+    # 리스트 아이템
+    text = re.sub(r"<li[^>]*>(.*?)</li>", r"* \1", text, flags=re.DOTALL)
+
+    # 테이블 셀
+    text = re.sub(r"<t[hd][^>]*>(.*?)</t[hd]>", r"| \1 ", text, flags=re.DOTALL)
+    text = re.sub(r"<tr[^>]*>", "", text)
+    text = re.sub(r"</tr>", "|", text)
+
+    # 줄바꿈 태그
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    text = re.sub(r"<p[^>]*>", "\n", text)
+    text = re.sub(r"</p>", "", text)
+
+    # 나머지 HTML 태그 제거
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # HTML 엔티티 디코드
+    text = html_module.unescape(text)
+
+    # 연속 빈 줄 정리
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+# ── PRD Description 변경 감지 ─────────────────────────────────────────
+
+
+def _snapshot_path_prd(qa_card_id: str) -> Path:
+    return SNAPSHOT_DIR / f"prd_{qa_card_id}.txt"
 
 
 def check_description_change(qa_card: dict) -> dict | None:
-    """QA카드 description을 이전 스냅샷과 비교. 변경 시 diff 반환.
+    """QA카드에 연결된 PRD의 description을 이전 스냅샷과 비교.
 
-    Returns: {"card_id": str, "title": str, "diff_text": str, "card_url": str} | None
+    PRD 소스:
+      - Linear 이슈 → description 필드
+      - Confluence 페이지 → 본문 (HTML → 텍스트 변환)
+
+    Returns: {"card_id": str, "prd_id": str, "title": str, "diff_text": str, "card_url": str} | None
     """
     card_id = qa_card["identifier"]
-    description = qa_card.get("description") or ""
-    snap_path = _snapshot_path_linear(card_id)
+    prd_source = _find_prd_source(qa_card)
+    if not prd_source:
+        return None
 
+    # PRD 본문 조회
+    if prd_source["type"] == "linear":
+        from src.linear_client import LinearClient
+        client = LinearClient()
+        prd_issue = client.get_issue_by_identifier(prd_source["identifier"])
+        if not prd_issue:
+            print(f"      PRD 이슈 조회 실패: {prd_source['identifier']}")
+            return None
+        description = prd_issue.get("description") or ""
+        prd_title = prd_issue.get("title") or prd_source["identifier"]
+        prd_id = prd_source["identifier"]
+        prd_url = f"https://linear.app/buzzvil/issue/{prd_id}"
+
+    elif prd_source["type"] == "confluence":
+        page = _fetch_confluence_page(prd_source["page_id"])
+        if not page:
+            return None
+        description = page["body"]
+        prd_title = page["title"]
+        prd_id = f"Confluence #{prd_source['page_id']}"
+        prd_url = prd_source["url"]
+
+    else:
+        return None
+
+    snap_path = _snapshot_path_prd(card_id)
     SNAPSHOT_DIR.mkdir(exist_ok=True)
 
     if not snap_path.exists():
-        # 최초 스냅샷 저장 (알림 없음)
         snap_path.write_text(description, encoding="utf-8")
+        print(f"      PRD 초기 스냅샷 저장: {prd_id}")
         return None
 
     old_desc = snap_path.read_text(encoding="utf-8")
@@ -50,32 +176,245 @@ def check_description_change(qa_card: dict) -> dict | None:
     # diff 생성
     old_lines = old_desc.splitlines()
     new_lines = description.splitlines()
-    diff_lines = list(difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile="변경 전", tofile="변경 후",
-        lineterm="",
-    ))
 
-    if not diff_lines:
-        # 줄바꿈 차이만 있는 경우
+    changes = _parse_readable_diff(old_lines, new_lines)
+    if not changes:
         snap_path.write_text(description, encoding="utf-8")
         return None
 
-    # 스냅샷 업데이트
     snap_path.write_text(description, encoding="utf-8")
+    diff_text = _format_changes(changes)
 
-    # diff 포맷팅 (최대 30줄)
-    diff_text = "\n".join(diff_lines[:30])
-    if len(diff_lines) > 30:
-        diff_text += f"\n... 외 {len(diff_lines) - 30}줄"
-
-    card_url = f"https://linear.app/buzzvil/issue/{card_id}"
     return {
         "card_id": card_id,
-        "title": qa_card.get("title", ""),
+        "prd_id": prd_id,
+        "title": prd_title,
         "diff_text": diff_text,
-        "card_url": card_url,
+        "card_url": prd_url,
     }
+
+
+def _strip_markdown(text: str) -> str:
+    """Markdown 특수문자 제거 (\\, *, _, #, 등)"""
+    text = text.replace("\\", "")
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)  # **bold**
+    text = text.replace("*", "").replace("_", "")
+    # 헤딩 마크 제거 (### 공통 사항 → 공통 사항)
+    text = re.sub(r"^#{1,6}\s*", "", text.strip())
+    text = text.strip()
+    return text
+
+
+def _find_heading_path(lines: list[str], line_idx: int) -> str:
+    """line_idx 위의 Markdown 헤딩 경로를 찾는다. (계층 구조)"""
+    headings = {}  # level → text
+    for i in range(line_idx, -1, -1):
+        stripped = lines[i].strip()
+        if stripped.startswith("#"):
+            level = len(stripped) - len(stripped.lstrip("#"))
+            text = _strip_markdown(stripped.lstrip("#").strip())
+            if level not in headings:
+                headings[level] = text
+            if level <= min(headings.keys(), default=99):
+                break
+    if not headings:
+        return ""
+    return " > ".join(headings[k] for k in sorted(headings.keys()))
+
+
+def _parse_table_row(line: str) -> tuple[str, str] | None:
+    """테이블 행에서 (라벨, 값) 추출. '| 제목 | 두두두둥 |' → ('제목', '두두두둥')"""
+    if not line.strip().startswith("|"):
+        return None
+    cells = [_strip_markdown(c) for c in line.split("|")]
+    cells = [c for c in cells if c]
+    if len(cells) < 2:
+        return None
+    # 구분선 제외
+    if cells[0].startswith("--"):
+        return None
+    return (cells[0], cells[1])
+
+
+def _clean_line(line: str) -> str:
+    """Markdown 문법을 정리하여 핵심 텍스트만 추출."""
+    text = line.strip().lstrip("*-").strip()
+    if not text or text.startswith("| --") or text == "|":
+        return ""
+    # 헤딩 라인 자체는 섹션 경로로 쓰므로 내용에서 제외
+    if text.startswith("#"):
+        return ""
+    return _strip_markdown(text)
+
+
+def _extract_change_detail(
+    old_line: str, new_line: str, lines_for_context: list[str], line_idx: int,
+) -> dict | None:
+    """변경된 한 쌍의 라인에서 읽기 좋은 변경 설명을 추출."""
+    section = _find_heading_path(lines_for_context, line_idx)
+
+    # 테이블 행인 경우: 라벨 + 값 비교
+    old_table = _parse_table_row(old_line)
+    new_table = _parse_table_row(new_line)
+    if old_table and new_table and old_table[0] == new_table[0]:
+        return {
+            "section": section,
+            "is_table": True,
+            "label": old_table[0],
+            "old": old_table[1],
+            "new": new_table[1],
+        }
+
+    # 일반 텍스트
+    old_clean = _clean_line(old_line)
+    new_clean = _clean_line(new_line)
+    if old_clean and new_clean:
+        return {
+            "section": section,
+            "is_table": bool(_parse_table_row(old_line)),
+            "label": "",
+            "old": old_clean,
+            "new": new_clean,
+        }
+
+    return None
+
+
+def _parse_readable_diff(old_lines: list[str], new_lines: list[str]) -> list[dict]:
+    """unified diff를 파싱하여 읽기 좋은 변경 목록을 생성.
+
+    Returns: [{"type": "modified"|"added"|"removed", "section": str, "detail": str}, ...]
+    """
+    diff_lines = list(difflib.unified_diff(
+        old_lines, new_lines, lineterm="",
+    ))
+    if not diff_lines:
+        return []
+
+    changes = []
+    old_idx = 0
+    new_idx = 0
+    pending_removed = []  # (old_idx, raw_line)
+
+    for line in diff_lines:
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        if line.startswith("@@"):
+            # 남은 pending 처리
+            for rm_idx, rm_raw in pending_removed:
+                clean = _clean_line(rm_raw)
+                if clean:
+                    section = _find_heading_path(old_lines, rm_idx)
+                    changes.append({"type": "removed", "section": section, "detail": clean})
+            pending_removed = []
+            m = re.match(r"@@ -(\d+)", line)
+            if m:
+                old_idx = int(m.group(1)) - 1
+            m2 = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", line)
+            if m2:
+                new_idx = int(m2.group(1)) - 1
+            continue
+
+        if line.startswith("-"):
+            raw = line[1:]
+            clean = _clean_line(raw)
+            if clean:
+                pending_removed.append((old_idx, raw))
+            old_idx += 1
+        elif line.startswith("+"):
+            raw = line[1:]
+            clean = _clean_line(raw)
+            if clean:
+                if pending_removed:
+                    rm_idx, rm_raw = pending_removed.pop(0)
+                    detail = _extract_change_detail(rm_raw, raw, old_lines, rm_idx)
+                    if detail:
+                        section = detail["section"]
+                        if detail["label"]:
+                            desc = f"{detail['label']}: '{detail['old']}' → '{detail['new']}'"
+                        else:
+                            desc = f"'{detail['old']}' → '{detail['new']}'"
+                        changes.append({"type": "modified", "section": section, "detail": desc, "is_table": detail.get("is_table", False)})
+                    else:
+                        section = _find_heading_path(old_lines, rm_idx)
+                        is_table = bool(_parse_table_row(rm_raw))
+                        changes.append({"type": "modified", "section": section, "detail": f"'{_clean_line(rm_raw)}' → '{clean}'", "is_table": is_table})
+                else:
+                    section = _find_heading_path(new_lines, new_idx)
+                    is_table = bool(_parse_table_row(raw))
+                    changes.append({"type": "added", "section": section, "detail": clean, "is_table": is_table})
+            new_idx += 1
+        else:
+            for rm_idx, rm_raw in pending_removed:
+                clean = _clean_line(rm_raw)
+                if clean:
+                    section = _find_heading_path(old_lines, rm_idx)
+                    is_table = bool(_parse_table_row(rm_raw))
+                    changes.append({"type": "removed", "section": section, "detail": clean, "is_table": is_table})
+            pending_removed = []
+            old_idx += 1
+            new_idx += 1
+
+    # 남은 pending 처리
+    for rm_idx, rm_raw in pending_removed:
+        clean = _clean_line(rm_raw)
+        if clean:
+            section = _find_heading_path(old_lines, rm_idx)
+            is_table = bool(_parse_table_row(rm_raw))
+            changes.append({"type": "removed", "section": section, "detail": clean, "is_table": is_table})
+
+    return changes
+
+
+def _format_grouped(items: list[dict]) -> list[str]:
+    """같은 섹션의 항목들을 그룹핑하여 포맷팅.
+    같은 섹션이 연속되면 섹션명 한 번만 표시, 하위에 detail 나열.
+    """
+    lines = []
+    prev_section = None
+
+    for c in items:
+        section = c.get("section", "")
+        detail = c.get("detail", "")
+        is_table = c.get("is_table", False)
+        table_tag = "[표] " if is_table else ""
+
+        if section and section == prev_section:
+            # 같은 섹션 — 하위 항목만
+            lines.append(f"        \u25E6 {table_tag}{detail}")
+        elif section:
+            # 새 섹션
+            lines.append(f"    \u2022 {section}")
+            lines.append(f"        \u25E6 {table_tag}{detail}")
+            prev_section = section
+        else:
+            # 섹션 없음
+            lines.append(f"    \u25E6 {table_tag}{detail}")
+            prev_section = None
+
+    return lines
+
+
+def _format_changes(changes: list[dict]) -> str:
+    """변경 목록을 수정/추가/삭제 그룹별로 포맷팅."""
+    modified = [c for c in changes if c["type"] == "modified"]
+    added = [c for c in changes if c["type"] == "added"]
+    removed = [c for c in changes if c["type"] == "removed"]
+
+    lines = []
+    if modified:
+        lines.append(f"\u2022 *수정* ({len(modified)}건)")
+        lines.extend(_format_grouped(modified))
+
+    if added:
+        lines.append(f"\u2022 *추가* ({len(added)}건)")
+        lines.extend(_format_grouped(added))
+
+    if removed:
+        lines.append(f"\u2022 *삭제* ({len(removed)}건)")
+        lines.extend(_format_grouped(removed))
+
+    return "\n".join(lines)
 
 
 # ── Figma 디자인 변경 감지 ───────────────────────────────────────────────
