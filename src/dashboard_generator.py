@@ -54,6 +54,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     generated_at = data.get("generated_at", "")
     dday = data.get("dday", "")
     release_date = data.get("release_date", "")
+    release_dates = data.get("release_dates", [])
     progress = data.get("progress", {})
     priority_breakdown = data.get("priority_breakdown", [])
     status_breakdown = data.get("status_breakdown", [])
@@ -354,11 +355,12 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     margin-bottom: 14px; padding-left: 10px;
     border-left: 4px solid #4338ca;
   }}
+  .grid-5 {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }}
   .grid-4 {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }}
   .grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
   .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }}
-  @media (max-width: 1024px) {{ .grid-4 {{ grid-template-columns: repeat(2, 1fr); }} }}
-  @media (max-width: 768px) {{ .grid-4, .grid-3, .grid-2 {{ grid-template-columns: 1fr; }} }}
+  @media (max-width: 1024px) {{ .grid-5 {{ grid-template-columns: repeat(3, 1fr); }} .grid-4 {{ grid-template-columns: repeat(2, 1fr); }} }}
+  @media (max-width: 768px) {{ .grid-5, .grid-4, .grid-3, .grid-2 {{ grid-template-columns: 1fr; }} }}
 
   /* ── Cards ── */
   .card {{ background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
@@ -462,7 +464,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   </div>
   <div class="header-right">
     {'<div class="dday-badge">' + dday + '</div>' if dday else ''}
-    {'<div class="release-info">릴리즈 목표: ' + release_date + '</div>' if release_date else ''}
+    {'<div class="release-info">' + '<br>'.join(rd['label'] + ': ' + rd['date'] for rd in release_dates) + '</div>' if release_dates else ('<div class="release-info">릴리즈 목표: ' + release_date + '</div>' if release_date else '')}
   </div>
 </div>
 
@@ -471,7 +473,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   <!-- ── 핵심 지표 ── -->
   <div class="section">
     <div class="section-title">핵심 지표</div>
-    <div class="grid-4">
+    <div class="grid-5">
       <div class="card metric-card">
         <div class="metric-label">테스트 진행률</div>
         <div class="metric-value" style="color:{progress_bar_color}">{pct_display}{'%' if not pct_is_unknown else ''}</div>
