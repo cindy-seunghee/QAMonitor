@@ -83,12 +83,19 @@ def analyze(issues: list[dict], config: dict) -> dict:
     bug_issues = [i for i in issues if _is_bug(i, bug_labels)]
     open_bugs = [i for i in bug_issues if _is_open_bug(i, bug_labels, bug_open_states)]
     dev_done_bugs = [i for i in bug_issues if i.get("state", {}).get("name") in bug_dev_done_states]
+    # 협의 종료 이슈 (Won't Fix, Not a Bug, Duplicate 등)
+    negotiated_closed = [i for i in bug_issues if i.get("state", {}).get("name") in qa_skip_states]
 
     progress = _calc_progress(qa_cards, qa_done_states)
     by_assignee = _group_by_assignee(qa_cards, open_bugs, qa_done_states)
     priority_breakdown = _priority_breakdown(open_bugs)
     status_breakdown = _status_breakdown(issues)
-    trend = _calc_trend(issues, days=14)
+    # 추이 차트: 해결로 간주할 상태 = open/개발자QA DONE이 아닌 상태
+    # 개발자 QA DONE은 수정 확인 대기이므로 해결에서 제외
+    exclude_from_resolved = set(bug_open_states) | set(bug_dev_done_states)
+    all_state_names = {i.get("state", {}).get("name", "") for i in issues}
+    trend_resolved_states = [s for s in all_state_names if s not in exclude_from_resolved]
+    trend = _calc_trend(issues, days=14, resolved_states=trend_resolved_states)
     exit_status = _check_exit_criteria(open_bugs, progress, exit_cfg)
     today_new = _today_new_issues(bug_issues)
 
@@ -111,6 +118,7 @@ def analyze(issues: list[dict], config: dict) -> dict:
         "open_bug_count": len(open_bugs),
         "dev_done_bugs": dev_done_bugs,
         "dev_done_bug_count": len(dev_done_bugs),
+        "negotiated_closed": negotiated_closed,
         "today_new_count": today_new,
         "by_assignee": by_assignee,
         "priority_breakdown": priority_breakdown,
@@ -232,8 +240,12 @@ def _status_breakdown(issues: list[dict]) -> list[dict]:
     ]
 
 
-def _calc_trend(issues: list[dict], days: int = 14) -> dict:
-    """일별 신규 이슈 생성 수 및 해결 수"""
+def _calc_trend(issues: list[dict], days: int = 14, resolved_states: list[str] = None) -> dict:
+    """일별 신규 이슈 생성 수 및 해결 수.
+    해결일: completedAt 우선, 없으면 해결 상태인 경우 updatedAt 사용.
+    """
+    if resolved_states is None:
+        resolved_states = []
     kst = timezone(timedelta(hours=9))
     now = datetime.now(kst)
     date_labels = []
@@ -251,7 +263,12 @@ def _calc_trend(issues: list[dict], days: int = 14) -> dict:
             if day_str in date_labels:
                 created_per_day[day_str] += 1
 
+        # 해결일: completedAt 우선, 없으면 해결 상태의 updatedAt 사용
         completed = _parse_dt(issue.get("completedAt"))
+        if not completed:
+            state_name = issue.get("state", {}).get("name", "")
+            if state_name in resolved_states:
+                completed = _parse_dt(issue.get("updatedAt"))
         if completed:
             day_str = completed.strftime("%m/%d")
             if day_str in date_labels:

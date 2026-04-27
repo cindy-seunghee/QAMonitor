@@ -5,6 +5,8 @@ import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+from .analyzer import PRIORITY_ORDER
+
 
 def _load_checklist(path: str) -> list[str]:
     """deployment_checklist.md에서 항목을 읽어온다. `- ` 로 시작하는 줄만 파싱."""
@@ -69,6 +71,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     trend_days = data.get("trend_days", 14)
     platform_breakdown = data.get("platform_breakdown", {})
     critical_issues = data.get("critical_issues", [])
+    negotiated_closed = data.get("negotiated_closed", [])
 
     # 진행률이 "?"인 경우 표시용 값 분리
     pct_raw = progress.get("pct", 0)
@@ -221,6 +224,62 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
             <td>{assignee}</td>
             <td class="text-center text-muted">{created}</td>
         </tr>"""
+
+    # 협의 종료 이슈 섹션 (우선순위 순, 최대 5건)
+    negotiated_html = ""
+    if negotiated_closed:
+        sorted_neg = sorted(
+            negotiated_closed,
+            key=lambda i: PRIORITY_ORDER.get(i.get("priorityLabel", "No priority"), 99),
+        )
+        display_neg = sorted_neg[:5]
+        neg_rows = ""
+        for ni in display_neg:
+            ni_id = ni.get("identifier", "")
+            ni_title = ni.get("title", "")
+            ni_priority = ni.get("priorityLabel", "No priority")
+            ni_state = ni.get("state", {}).get("name", "")
+            ni_assignee = (ni.get("assignee") or {}).get("displayName") or "미지정"
+            ni_url = ni.get("url", "#")
+            ni_badge_cls = priority_badge.get(ni_priority, "badge-gray")
+            neg_rows += f"""
+            <tr>
+                <td><a href="{ni_url}" target="_blank" class="issue-link">{ni_id}</a></td>
+                <td>{ni_title[:60]}{'...' if len(ni_title) > 60 else ''}</td>
+                <td><span class="badge {ni_badge_cls}">{ni_priority}</span></td>
+                <td>{ni_state}</td>
+                <td>{ni_assignee}</td>
+            </tr>"""
+        # 더보기 버튼 (5건 초과 시, 협의 종료 뷰 링크)
+        view_urls = data.get("view_urls", {})
+        neg_view_url = view_urls.get("negotiated", "")
+        if not neg_view_url:
+            qa_card_data = data.get("qa_card", {})
+            neg_view_url = qa_card_data.get("url", "#")
+        remaining = len(negotiated_closed) - 5
+        more_btn = f'<div style="margin-top:12px"><a href="{neg_view_url}" target="_blank" style="display:inline-block;padding:6px 16px;background:#4338ca;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none">{remaining}건 이슈 더보기 →</a></div>' if remaining > 0 else ""
+        negotiated_html = f"""
+        <div class="section">
+            <div class="section-title">협의 종료 이슈 ({len(negotiated_closed)}건)</div>
+            <div class="card">
+                <p class="text-muted" style="font-size:13px;margin-bottom:12px">수정 없이 협의로 종료된 이슈입니다. 이슈 추이 차트에서는 해결로 집계됩니다. (최대 5개 노출)</p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:90px">ID</th>
+                                <th>제목</th>
+                                <th style="width:100px">우선순위</th>
+                                <th style="width:120px">종료 사유</th>
+                                <th style="width:100px">담당자</th>
+                            </tr>
+                        </thead>
+                        <tbody>{neg_rows}</tbody>
+                    </table>
+                </div>
+                {more_btn}
+            </div>
+        </div>"""
 
     # 플랫폼별 비교 카드
     platform_cards_html = ""
@@ -591,6 +650,8 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
       </div>
     </div>
   </div>
+
+  {negotiated_html}
 
   <!-- ── 담당자별 현황 ── -->
   <div class="section">

@@ -192,6 +192,18 @@ def create_views_for_card(identifier: str) -> dict:
     views.append({"name": "수정 확인 대기", "url": f"https://linear.app/buzzvil/view/{slug}"})
     created.append("수정 확인 대기")
 
+    # 협의 종료 이슈 뷰 (Won't Fix, Not a Bug, Duplicate 등)
+    neg_states = ["Canceled", "Duplicate", "Can't Reproduce", "Not a Bug", "Won't Fix"]
+    neg_view_name = f"협의 종료 [{identifier}]"
+    filter_data = {
+        "parent": {"id": {"in": child_parent_ids}},
+        "state": {"name": {"in": neg_states}},
+    }
+    view = create_view(neg_view_name, team_id, filter_data)
+    slug = view.get("slugId") or view["id"]
+    views.append({"name": "협의 종료", "url": f"https://linear.app/buzzvil/view/{slug}"})
+    created.append("협의 종료")
+
     return {"created": created, "skipped": skipped, "views": views}
 
 
