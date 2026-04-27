@@ -660,6 +660,8 @@ def sync_views(cards_by_manager: dict[str, list[dict]]) -> dict:
                         urls["my"] = v["url"]
                     elif v["name"] == "수정 확인 대기":
                         urls["dev_done"] = v["url"]
+                    elif v["name"] == "협의 종료":
+                        urls["negotiated"] = v["url"]
                 view_urls[identifier] = urls
             except Exception as e:
                 failed.append({"card": identifier, "action": "생성", "reason": str(e)})
