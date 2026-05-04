@@ -762,6 +762,13 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
     if progress_status["expected_pct"] > 0:
         print(f"      계획 진행률: {progress_status['expected_pct']}% | 실제: {progress_status['actual_pct']}% | 아이콘: {progress_status['icon']}")
 
+    # 구글시트 진행률 반영 후 배포 기준 재계산
+    from src.analyzer import _check_exit_criteria
+    exit_cfg = config.get("exit_criteria", {})
+    data["exit_status"] = _check_exit_criteria(
+        data.get("open_bugs", []), data["progress"], exit_cfg
+    )
+
     dash_cfg = config.get("dashboard", {})
     checklist_path = dash_cfg.get("checklist_path", "deployment_checklist.md")
     data["max_bugs_display"] = dash_cfg.get("max_bugs_display", 50)
