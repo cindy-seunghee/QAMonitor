@@ -553,7 +553,10 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
 
     errors: list[dict] = []
     kst = timezone(timedelta(hours=9))
-    is_morning = datetime.now(kst).hour < 12
+    current_hour = datetime.now(kst).hour
+    is_morning = current_hour < 12
+    # 링크 누락 안내: 09시, 15시에만 발송
+    send_missing_links = current_hour in (9, 15)
 
     print("─" * 50)
     target = assignee_name or "전체"
@@ -576,13 +579,14 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
         if assignee_name and manager_name != assignee_name:
             continue
 
-        active = get_active_cards(cards)
-        if not active:
+        # 변경 감시는 Todo/Backlog도 포함 (TC 작성 기간은 should_watch가 판단)
+        watchable = [c for c in cards if c["state"]["name"] not in ("Done", "Canceled")]
+        if not watchable:
             continue
 
         # TC 작성 기간인 카드만 필터
         watch_cards = []
-        for qa_card in active:
+        for qa_card in watchable:
             test_phases = parse_test_phases(qa_card)
             if should_watch(test_phases):
                 watch_cards.append(qa_card)
@@ -599,7 +603,7 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
         manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
 
         # 오전: PRD/Figma 링크 누락 안내 (매니저별 1건으로 통합)
-        if is_morning and manager_slack_id:
+        if send_missing_links and manager_slack_id:
             missing_cards = []
             for qa_card in watch_cards:
                 missing = check_missing_links(qa_card)
