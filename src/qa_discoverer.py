@@ -452,6 +452,8 @@ def parse_release_date(qa_card: dict) -> str | None:
 
 def _parse_date_range(text: str) -> tuple[str | None, str | None]:
     """'3/9 ~ 3/17 (7일)' 또는 'Mar 24th ~ Mar 21st' → (시작일, 종료일) YYYY-MM-DD"""
+    # 취소선(~~...~~) 제거 후 파싱
+    text = re.sub(r"~~[^~]+~~", "", text)
     # '~' 또는 '\~' 로 분리
     parts = re.split(r"\\?~", text)
     if len(parts) < 2:
