@@ -286,13 +286,10 @@ def _check_exit_criteria(
 ) -> list[dict]:
     urgent_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "Urgent")
     high_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "High")
-    medium_count = sum(1 for b in open_bugs if b.get("priorityLabel") == "Medium")
 
     urgent_max = exit_cfg.get("urgent_bug_max", 0)
     high_max = exit_cfg.get("high_bug_max", 0)
-    medium_max = exit_cfg.get("medium_bug_max", 5)
     completion_min = exit_cfg.get("test_completion_min_pct", 100)
-    pass_min = exit_cfg.get("test_pass_min_pct", 95)
 
     criteria = [
         {
@@ -304,11 +301,6 @@ def _check_exit_criteria(
             "label": f"High 버그 {high_max}개 이하",
             "current": f"{high_count}개",
             "pass": high_count <= high_max,
-        },
-        {
-            "label": f"Medium 버그 {medium_max}개 이하",
-            "current": f"{medium_count}개",
-            "pass": medium_count <= medium_max,
         },
         {
             "label": f"테스트 완료율 {completion_min}% 이상",
