@@ -684,8 +684,10 @@ def should_watch(test_phases: dict) -> bool:
 
     current_phase = test_phases.get("current_phase", "")
 
-    # 테스트 전 → 항상 감시
+    # 테스트 전 → 감시 (단, 통합테스트 일정이 미정이면 스킵)
     if current_phase == "테스트 전":
+        if not test_phases.get("integration"):
+            return False
         return True
 
     # 통합테스트 시작일 당일 → 오전(12시 전)에만 마지막 1회
