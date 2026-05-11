@@ -12,7 +12,7 @@ import requests
 
 
 SNAPSHOT_DIR = Path("snapshots")
-MAX_DEPTH = 3
+MAX_DEPTH = 10
 
 # Figma URL에서 fileKey, nodeId 추출
 _FIGMA_URL_RE = re.compile(
@@ -487,16 +487,29 @@ def parse_figma_urls(qa_card: dict) -> list[dict]:
 
 
 def _fetch_figma_nodes(file_key: str, node_ids: list[str]) -> dict:
-    """Figma REST API로 노드 트리 조회"""
+    """Figma REST API로 노드 트리 조회 (429 시 최대 3회 retry)"""
+    import time
+
     token = os.environ.get("FIGMA_TOKEN", "")
     if not token:
         raise RuntimeError("FIGMA_TOKEN 환경변수가 설정되지 않았습니다")
 
     ids = ",".join(nid.replace(":", "-") for nid in node_ids)
     url = f"https://api.figma.com/v1/files/{file_key}/nodes?ids={ids}"
-    resp = requests.get(url, headers={"X-Figma-Token": token}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    headers = {"X-Figma-Token": token}
+
+    for attempt in range(3):
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            retry_after = int(resp.headers.get("Retry-After", 30))
+            wait = min(retry_after, 60)
+            print(f"      Figma API rate limit — {wait}초 대기 후 재시도 ({attempt + 1}/3)")
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp.json()
+
+    raise RuntimeError(f"Figma API rate limit 초과 (3회 재시도 실패, file={file_key})")
 
 
 def _extract_node_props(node: dict) -> dict:
@@ -625,13 +638,16 @@ def check_figma_changes(figma_targets: list[dict], card_id: str) -> list[dict]:
     for t in figma_targets:
         by_file.setdefault(t["file_key"], []).append(t)
 
-    for file_key, targets in by_file.items():
+    import time as _time
+    for idx, (file_key, targets) in enumerate(by_file.items()):
+        if idx > 0:
+            _time.sleep(2)  # 파일 간 2초 간격으로 rate limit 회피
         node_ids = [t["node_id"] for t in targets]
         try:
             api_data = _fetch_figma_nodes(file_key, node_ids)
         except Exception as e:
             print(f"      Figma API 오류 ({file_key}): {e}")
-            continue
+            raise
 
         nodes_data = api_data.get("nodes", {})
         for t in targets:
