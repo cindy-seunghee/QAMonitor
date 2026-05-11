@@ -498,18 +498,30 @@ def _fetch_figma_nodes(file_key: str, node_ids: list[str]) -> dict:
     url = f"https://api.figma.com/v1/files/{file_key}/nodes?ids={ids}"
     headers = {"X-Figma-Token": token}
 
+    last_resp = None
     for attempt in range(3):
         resp = requests.get(url, headers=headers, timeout=30)
         if resp.status_code == 429:
+            last_resp = resp
+            rate_type = resp.headers.get("X-Figma-Rate-Limit-Type", "unknown")
             retry_after = int(resp.headers.get("Retry-After", 30))
+            # 월 한도(Collab/View seat)는 retry해도 소용 없음
+            if retry_after > 3600:
+                raise RuntimeError(
+                    f"Figma API 월 한도 초과 (seat={rate_type}, Retry-After={retry_after}s) "
+                    f"→ Dev/Full seat 업그레이드 필요"
+                )
             wait = min(retry_after, 60)
-            print(f"      Figma API rate limit — {wait}초 대기 후 재시도 ({attempt + 1}/3)")
+            print(f"      Figma API rate limit (seat={rate_type}) — {wait}초 대기 후 재시도 ({attempt + 1}/3)")
             time.sleep(wait)
             continue
         resp.raise_for_status()
         return resp.json()
 
-    raise RuntimeError(f"Figma API rate limit 초과 (3회 재시도 실패, file={file_key})")
+    rate_type = last_resp.headers.get("X-Figma-Rate-Limit-Type", "unknown") if last_resp else "unknown"
+    raise RuntimeError(
+        f"Figma API rate limit 초과 (seat={rate_type}, 3회 재시도 실패, file={file_key})"
+    )
 
 
 def _extract_node_props(node: dict) -> dict:
