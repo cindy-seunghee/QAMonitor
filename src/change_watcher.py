@@ -796,10 +796,14 @@ def watch_card_changes(qa_card: dict, config: dict) -> dict:
                 figma_targets.append(t)
 
     figma_changes = []
-    if figma_targets and os.environ.get("FIGMA_TOKEN"):
-        figma_changes = check_figma_changes(figma_targets, card_id)
-    elif figma_targets:
-        print(f"      FIGMA_TOKEN 미설정 — Figma 변경 감지 건너뜀")
+    # TODO: Figma API Collab seat rate limit(월 6회) 초과 문제로 비활성화
+    #       Dev/Full seat 확보 후 아래 주석 해제
+    # if figma_targets and os.environ.get("FIGMA_TOKEN"):
+    #     figma_changes = check_figma_changes(figma_targets, card_id)
+    # elif figma_targets:
+    #     print(f"      FIGMA_TOKEN 미설정 — Figma 변경 감지 건너뜀")
+    if figma_targets:
+        print(f"      Figma 변경 감지 비활성화 (rate limit 문제)")
 
     return {
         "card_id": card_id,
