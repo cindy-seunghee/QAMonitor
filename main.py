@@ -179,28 +179,28 @@ def run(config: dict) -> str:
                 errors.append({"step": f"데이터 준비 ({card_id})", "detail": str(e)})
                 continue
 
-            # 매니저 slack_id로 DM 발송
-            manager_cfg = user_map.get(manager_name, {})
-            manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
-            if manager_slack_id:
+            # 채널로 테스트 진행상황 발송
+            if channel:
                 try:
-                    print(f"[4/4] Slack DM 전송: {card_id} → {manager_name}")
+                    print(f"[4/4] Slack 채널 전송: {card_id} → {channel}")
                     notifier = SlackNotifier()
                     notifier.send_daily_report(
                         data=data,
-                        channel=manager_slack_id,
+                        channel=channel,
                         user_map=user_map,
                         template_path=slack_cfg.get("template_path", "slack_template.md"),
                         dashboard_path=data.get("dashboard_path"),
                     )
                 except Exception as e:
-                    msg = f"{card_id} Slack DM 전송 실패: {e}"
+                    msg = f"{card_id} Slack 채널 전송 실패: {e}"
                     print(f"  ✗ {msg}")
-                    errors.append({"step": f"Slack DM ({card_id})", "detail": str(e)})
+                    errors.append({"step": f"Slack 채널 ({card_id})", "detail": str(e)})
             else:
-                print(f"      ⚠ {manager_name} slack_id 미설정 — 전송 건너뜀")
+                print(f"      ⚠ summary_channel 미설정 — 전송 건너뜀")
 
             # ── QA매니저 DM: 권고사항 ──
+            manager_cfg = user_map.get(manager_name, {})
+            manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
             if manager_slack_id:
                 if not notifier:
                     notifier = SlackNotifier()
@@ -301,11 +301,9 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
     slack_cfg = config.get("slack", {})
     user_map = resolve_user_map(slack_cfg.get("user_map") or {})
 
-    # 매니저 slack_id로 DM 발송
-    manager_cfg = user_map.get(assignee_name, {})
-    manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
-    if not manager_slack_id:
-        print(f"      ⚠ {assignee_name} slack_id 미설정 — 전송 건너뜀")
+    channel = slack_cfg.get("summary_channel") or os.environ.get("SLACK_CHANNEL_ID", "")
+    if not channel:
+        print(f"      ⚠ summary_channel 미설정 — 전송 건너뜀")
         return
 
     notifier = SlackNotifier()
@@ -354,7 +352,7 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
             slack_cfg = config.get("slack", {})
             notifier.send_daily_report(
                 data=data,
-                channel=manager_slack_id,
+                channel=channel,
                 user_map=user_map,
                 template_path=slack_cfg.get("template_path", "slack_template.md"),
                 dashboard_path=data.get("dashboard_path"),
@@ -522,20 +520,18 @@ def run_single_card(config: dict, card_id: str) -> None:
     )
     data["dashboard_url"] = dashboard_url
 
-    # 매니저 slack_id로 DM 발송
-    manager_cfg = user_map.get(card_manager, {})
-    manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
-    if manager_slack_id:
+    # 채널로 테스트 진행상황 발송
+    if channel:
         notifier = SlackNotifier()
         notifier.send_daily_report(
             data=data,
-            channel=manager_slack_id,
+            channel=channel,
             user_map=user_map,
             template_path=slack_cfg.get("template_path", "slack_template.md"),
             dashboard_path=data.get("dashboard_path"),
         )
     else:
-        print(f"      ⚠ {card_manager} slack_id 미설정 — 전송 건너뜀")
+        print(f"      ⚠ summary_channel 미설정 — 전송 건너뜀")
 
     print("─" * 50)
     print(f"{card_id} 완료!")
