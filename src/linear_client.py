@@ -339,12 +339,16 @@ class LinearClient:
                 break
             cursor = conn["pageInfo"]["endCursor"]
 
-        # required_labels 중 하나라도 있으면 제외
+        # required_labels 중 하나라도 있으면 제외, "운영검증" 라벨은 QA 라벨 누락 대상에서 제외
         required_lower = {l.lower() for l in required_labels}
+        exclude_labels = {"운영검증"}
         missing = []
         for issue in all_issues:
-            label_names = {n["name"].lower() for n in issue.get("labels", {}).get("nodes", [])}
-            if not label_names & required_lower:
+            label_names = {n["name"] for n in issue.get("labels", {}).get("nodes", [])}
+            if label_names & exclude_labels:
+                continue
+            label_names_lower = {n.lower() for n in label_names}
+            if not label_names_lower & required_lower:
                 missing.append(issue)
         return missing
 

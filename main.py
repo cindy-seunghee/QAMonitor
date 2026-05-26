@@ -122,25 +122,42 @@ def run(config: dict) -> str:
             print(f"    → 진행중인 QA카드 없음 — 발송 건너뜀")
             continue
 
-        # ── 운영모니터링 카드 수집 ──
-        from src.qa_discoverer import parse_test_phases
-        monitoring_cards = []
+        # ── 운영검증 라벨 하위이슈 수집 ──
+        from src.linear_client import LinearClient
+        monitoring_data = []  # [{"card": {...}, "issues": [...]}, ...]
         normal_cards = []
+        lc = LinearClient()
         for qa_card in active:
-            test_phases = parse_test_phases(qa_card)
-            if test_phases["current_phase"] == "운영모니터링":
-                card_id = qa_card['identifier']
-                print(f"\n  {card_id}: {qa_card['title']} (운영모니터링)")
-                monitoring_cards.append({
-                    "identifier": card_id,
-                    "title": qa_card['title'],
-                    "url": f"https://linear.app/buzzvil/issue/{card_id}",
-                })
-            else:
+            try:
+                children = lc.get_child_issues(qa_card["id"])
+                # "운영검증" 라벨 + Done/Canceled 제외
+                verification_issues = [
+                    c for c in children
+                    if any(l["name"] == "운영검증" for l in c.get("labels", {}).get("nodes", []))
+                    and c.get("state", {}).get("name") not in ("Done", "Canceled")
+                ]
+                if verification_issues:
+                    card_id = qa_card['identifier']
+                    print(f"\n  {card_id}: {qa_card['title']} (운영검증 {len(verification_issues)}건)")
+                    monitoring_data.append({
+                        "card": {
+                            "identifier": card_id,
+                            "title": qa_card['title'],
+                            "url": f"https://linear.app/buzzvil/issue/{card_id}",
+                        },
+                        "issues": [
+                            {"identifier": c["identifier"], "title": c["title"], "url": c.get("url", "")}
+                            for c in verification_issues
+                        ],
+                    })
+                else:
+                    normal_cards.append(qa_card)
+            except Exception as e:
+                print(f"  ⚠ {qa_card['identifier']} 하위이슈 조회 실패: {e}")
                 normal_cards.append(qa_card)
 
-        # ── 운영모니터링 DM 일괄 발송 ──
-        if monitoring_cards:
+        # ── 운영검증 DM 일괄 발송 ──
+        if monitoring_data:
             manager_cfg = user_map.get(manager_name, {})
             manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
             if manager_slack_id:
@@ -149,11 +166,38 @@ def run(config: dict) -> str:
                         notifier = SlackNotifier()
                     notifier.send_monitoring_dm(
                         slack_id=manager_slack_id,
-                        monitoring_cards=monitoring_cards,
+                        monitoring_data=monitoring_data,
                     )
                 except Exception as e:
-                    print(f"  ✗ 운영모니터링 DM 실패: {e}")
-                    errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+                    print(f"  ✗ 운영검증 DM 실패: {e}")
+                    errors.append({"step": "운영검증 DM", "detail": str(e)})
+
+        # ── 테스트 기간 미기재 안내 DM ──
+        from src.qa_discoverer import parse_test_phases
+        missing_date_cards = []
+        for qa_card in active:
+            test_phases = parse_test_phases(qa_card)
+            if test_phases.get("missing_dates"):
+                card_id = qa_card['identifier']
+                missing_date_cards.append({
+                    "identifier": card_id,
+                    "title": qa_card['title'],
+                    "url": f"https://linear.app/buzzvil/issue/{card_id}",
+                    "missing": test_phases["missing_dates"],
+                })
+        if missing_date_cards:
+            manager_cfg = user_map.get(manager_name, {})
+            manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+            if manager_slack_id:
+                try:
+                    if not notifier:
+                        notifier = SlackNotifier()
+                    notifier.send_missing_dates_dm(
+                        slack_id=manager_slack_id,
+                        cards_info=missing_date_cards,
+                    )
+                except Exception as e:
+                    print(f"  ✗ 테스트 기간 안내 DM 실패: {e}")
 
         for qa_card in normal_cards:
             card_id = qa_card['identifier']
@@ -308,15 +352,49 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
 
     notifier = SlackNotifier()
 
-    # ── 운영모니터링 카드는 별도 발송이므로 스킵 ──
-    from src.qa_discoverer import parse_test_phases
+    # ── 운영검증 전용 카드는 별도 발송이므로 스킵 ──
+    from src.linear_client import LinearClient
+    lc = LinearClient()
     normal_cards = []
     for qa_card in active:
-        test_phases = parse_test_phases(qa_card)
-        if test_phases["current_phase"] == "운영모니터링":
-            print(f"  → {qa_card['identifier']}: {qa_card['title']} (운영모니터링 — 스킵)")
-            continue
+        try:
+            children = lc.get_child_issues(qa_card["id"])
+            has_verification = any(
+                any(l["name"] == "운영검증" for l in c.get("labels", {}).get("nodes", []))
+                and c.get("state", {}).get("name") not in ("Done", "Canceled")
+                for c in children
+            )
+            if has_verification:
+                print(f"  → {qa_card['identifier']}: {qa_card['title']} (운영검증 — 스킵)")
+                continue
+        except Exception as e:
+            print(f"  ⚠ {qa_card['identifier']} 하위이슈 조회 실패: {e}")
         normal_cards.append(qa_card)
+
+    # ── 테스트 기간 미기재 안내 DM ──
+    from src.qa_discoverer import parse_test_phases
+    missing_date_cards = []
+    for qa_card in active:
+        test_phases = parse_test_phases(qa_card)
+        if test_phases.get("missing_dates"):
+            card_id = qa_card['identifier']
+            missing_date_cards.append({
+                "identifier": card_id,
+                "title": qa_card['title'],
+                "url": f"https://linear.app/buzzvil/issue/{card_id}",
+                "missing": test_phases["missing_dates"],
+            })
+    if missing_date_cards:
+        manager_cfg = user_map.get(assignee_name, {})
+        manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+        if manager_slack_id:
+            try:
+                notifier.send_missing_dates_dm(
+                    slack_id=manager_slack_id,
+                    cards_info=missing_date_cards,
+                )
+            except Exception as e:
+                print(f"  ✗ 테스트 기간 안내 DM 실패: {e}")
 
     for qa_card in normal_cards:
         card_id = qa_card['identifier']
@@ -372,17 +450,17 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
 
 
 def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
-    """특정 QAM의 운영모니터링 카드만 일괄 DM 발송."""
+    """특정 QAM의 운영검증 대상 이슈 DM 발송."""
     from src.qa_discoverer import (
-        discover_qa_cards, get_active_cards,
-        parse_test_phases, resolve_user_map,
+        discover_qa_cards, get_active_cards, resolve_user_map,
     )
+    from src.linear_client import LinearClient
     from src.slack_notifier import SlackNotifier
 
     errors: list[dict] = []
 
     print("─" * 50)
-    print(f"[운영모니터링] {assignee_name} 메시지 준비")
+    print(f"[운영검증] {assignee_name} 메시지 준비")
 
     try:
         cards_by_manager = discover_qa_cards(config)
@@ -395,20 +473,35 @@ def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
     cards = cards_by_manager.get(assignee_name, [])
     active = get_active_cards(cards)
 
-    monitoring_cards = []
+    lc = LinearClient()
+    monitoring_data = []
     for qa_card in active:
-        test_phases = parse_test_phases(qa_card)
-        if test_phases["current_phase"] == "운영모니터링":
-            card_id = qa_card['identifier']
-            print(f"  → {card_id}: {qa_card['title']}")
-            monitoring_cards.append({
-                "identifier": card_id,
-                "title": qa_card['title'],
-                "url": f"https://linear.app/buzzvil/issue/{card_id}",
-            })
+        try:
+            children = lc.get_child_issues(qa_card["id"])
+            verification_issues = [
+                c for c in children
+                if any(l["name"] == "운영검증" for l in c.get("labels", {}).get("nodes", []))
+                and c.get("state", {}).get("name") not in ("Done", "Canceled")
+            ]
+            if verification_issues:
+                card_id = qa_card['identifier']
+                print(f"  → {card_id}: {qa_card['title']} (운영검증 {len(verification_issues)}건)")
+                monitoring_data.append({
+                    "card": {
+                        "identifier": card_id,
+                        "title": qa_card['title'],
+                        "url": f"https://linear.app/buzzvil/issue/{card_id}",
+                    },
+                    "issues": [
+                        {"identifier": c["identifier"], "title": c["title"], "url": c.get("url", "")}
+                        for c in verification_issues
+                    ],
+                })
+        except Exception as e:
+            print(f"  ⚠ {qa_card['identifier']} 하위이슈 조회 실패: {e}")
 
-    if not monitoring_cards:
-        print(f"  {assignee_name}: 운영모니터링 대상 카드 없음 — 발송 건너뜀")
+    if not monitoring_data:
+        print(f"  {assignee_name}: 운영검증 대상 없음 — 발송 건너뜀")
         return
 
     slack_cfg = config.get("slack", {})
@@ -424,11 +517,11 @@ def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
     try:
         notifier.send_monitoring_dm(
             slack_id=manager_slack_id,
-            monitoring_cards=monitoring_cards,
+            monitoring_data=monitoring_data,
         )
     except Exception as e:
-        print(f"  ✗ 운영모니터링 DM 실패: {e}")
-        errors.append({"step": "운영모니터링 DM", "detail": str(e)})
+        print(f"  ✗ 운영검증 DM 실패: {e}")
+        errors.append({"step": "운영검증 DM", "detail": str(e)})
 
     # ── QA 라벨 누락 이슈 체크 ──
     try:
@@ -520,9 +613,30 @@ def run_single_card(config: dict, card_id: str) -> None:
     )
     data["dashboard_url"] = dashboard_url
 
+    notifier = SlackNotifier()
+
+    # ── 테스트 기간 미기재 안내 DM ──
+    from src.qa_discoverer import parse_test_phases
+    test_phases = parse_test_phases(qa_card)
+    if test_phases.get("missing_dates"):
+        manager_cfg = user_map.get(card_manager, {})
+        manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+        if manager_slack_id:
+            try:
+                notifier.send_missing_dates_dm(
+                    slack_id=manager_slack_id,
+                    cards_info=[{
+                        "identifier": card_id,
+                        "title": qa_card["title"],
+                        "url": f"https://linear.app/buzzvil/issue/{card_id}",
+                        "missing": test_phases["missing_dates"],
+                    }],
+                )
+            except Exception as e:
+                print(f"  ✗ 테스트 기간 안내 DM 실패: {e}")
+
     # 채널로 테스트 진행상황 발송
     if channel:
-        notifier = SlackNotifier()
         notifier.send_daily_report(
             data=data,
             channel=channel,

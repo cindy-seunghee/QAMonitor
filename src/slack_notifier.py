@@ -665,17 +665,21 @@ class SlackNotifier:
         except SlackApiError as e:
             print(f"  \u2717 TC시트 미첨부 안내 DM 전송 실패: {e.response['error']}")
 
-    # ── 운영모니터링 DM ──────────────────────────────────────────────────
+    # ── 운영검증 DM ────────────────────────────────────────────────────
 
-    def send_monitoring_dm(self, slack_id: str, monitoring_cards: list[dict]) -> None:
-        """운영모니터링 대상 카드 목록을 DM으로 보낸다.
-        monitoring_cards: [{"identifier": "SUP-1476", "title": "...", "url": "..."}, ...]
+    def send_monitoring_dm(self, slack_id: str, monitoring_data: list[dict]) -> None:
+        """운영검증 대상 이슈를 QA카드별로 그룹핑하여 DM 발송.
+        monitoring_data: [{"card": {"identifier", "title", "url"}, "issues": [{"identifier", "title", "url"}, ...]}, ...]
         """
-        card_lines = "\n".join(
-            f"\u2022 {c['identifier']} : <{c['url']}|{c['title']}>"
-            for c in monitoring_cards
-        )
-        text = f":blob-bot: 운영환경 검증 대상 케이스가 존재합니다:heavy_exclamation_mark:\n{card_lines}"
+        lines = [":blob-bot: 운영환경 검증 대상 이슈가 있습니다:heavy_exclamation_mark:\n"]
+        total_issues = 0
+        for item in monitoring_data:
+            issues = item["issues"]
+            total_issues += len(issues)
+            for issue in issues:
+                lines.append(f"• <{issue['url']}|{issue['identifier']}> {issue['title']}")
+
+        text = "\n".join(lines).rstrip()
         blocks = [
             {
                 "type": "section",
@@ -686,13 +690,47 @@ class SlackNotifier:
             self.client.chat_postMessage(
                 channel=slack_id,
                 blocks=blocks,
-                text=f"운영모니터링: {len(monitoring_cards)}건",
+                text=f"운영검증: {total_issues}건",
                 unfurl_links=False,
                 unfurl_media=False,
             )
-            print(f"  ✓ 운영모니터링 DM 전송 완료: {slack_id}")
+            print(f"  ✓ 운영검증 DM 전송 완료: {slack_id}")
         except SlackApiError as e:
-            print(f"  ✗ 운영모니터링 DM 전송 실패: {e.response['error']}")
+            print(f"  ✗ 운영검증 DM 전송 실패: {e.response['error']}")
+
+    def send_missing_dates_dm(
+        self, slack_id: str, cards_info: list[dict],
+    ) -> None:
+        """테스트 기간 미기재 QA카드 안내 DM.
+        cards_info: [{"identifier": "SUP-2300", "title": "...", "url": "...", "missing": ["통합테스트", "리그레션테스트"]}, ...]
+        """
+        lines = [":bell: *테스트 기간 기재 안내*\n"]
+        lines.append("QA카드 Description에 테스트 기간이 누락되어 있습니다.\n")
+        for card in cards_info:
+            missing_str = ", ".join(card["missing"])
+            lines.append(f"• <{card['url']}|{card['identifier']} {card['title']}> — _{missing_str}_")
+        lines.append("")
+        lines.append("_`통합테스트: M/DD ~ M/DD` , `리그레션테스트: M/DD ~ M/DD` 형식으로 기재해주세요._")
+        lines.append("_리그레션테스트가 없는 경우 `리그레션테스트: 없음` 으로 기재해주세요._")
+
+        text = "\n".join(lines)
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"테스트 기간 기재 안내: {len(cards_info)}건",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  ✓ 테스트 기간 안내 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  ✗ 테스트 기간 안내 DM 전송 실패: {e.response['error']}")
 
     def send_missing_label_dm(
         self, slack_id: str, issues: list[dict], label_name: str,

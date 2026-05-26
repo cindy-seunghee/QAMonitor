@@ -481,19 +481,39 @@ def parse_test_phases(qa_card: dict) -> dict:
     description = qa_card.get("description") or ""
     integration = None
     regression = None
+    has_integration_keyword = False
+    has_regression_keyword = False
+    regression_skipped = False  # "없음"으로 명시적 스킵
 
     for line in description.splitlines():
         stripped = line.strip().lstrip("*").strip()
         if re.match(r"통합테스트\s*:", stripped):
+            has_integration_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
             start, end = _parse_date_range(date_part)
             if start and end:
                 integration = {"start": start, "end": end}
         elif re.match(r"리그레션테스트\s*:", stripped):
+            has_regression_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
-            start, end = _parse_date_range(date_part)
-            if start and end:
-                regression = {"start": start, "end": end}
+            if re.match(r"\s*없음\s*$", date_part):
+                regression_skipped = True
+            else:
+                start, end = _parse_date_range(date_part)
+                if start and end:
+                    regression = {"start": start, "end": end}
+
+    # 기간 누락 항목 수집
+    missing_dates: list[str] = []
+    if not has_integration_keyword:
+        missing_dates.append("통합테스트")
+    elif not integration:
+        missing_dates.append("통합테스트 날짜")
+    if not has_regression_keyword:
+        if not regression_skipped:
+            missing_dates.append("리그레션테스트")
+    elif not regression and not regression_skipped:
+        missing_dates.append("리그레션테스트 날짜")
 
     # 오늘 날짜 기준 현재 단계 판단 (KST)
     from datetime import timezone, timedelta
@@ -511,19 +531,18 @@ def parse_test_phases(qa_card: dict) -> dict:
         # 통합 끝났지만 리그레션 안 시작
         if regression and today < regression["start"]:
             current_phase = "리그레션 대기"
-        else:
+        elif regression:
             current_phase = "리그레션테스트"
-
-    # 리그레션 종료 + In Progress/In Review → 운영모니터링
-    state_name = qa_card.get("state", {}).get("name", "")
-    if (current_phase in ("테스트 완료", "리그레션 대기")
-            and state_name in ("In Progress", "In Review")):
-        current_phase = "운영모니터링"
+        else:
+            # 리그레션 미기재 → 통합 종료 시 테스트 완료
+            current_phase = "테스트 완료"
 
     return {
         "integration": integration,
         "regression": regression,
+        "regression_skipped": regression_skipped,
         "current_phase": current_phase,
+        "missing_dates": missing_dates,
     }
 
 
