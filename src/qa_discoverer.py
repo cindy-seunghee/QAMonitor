@@ -56,6 +56,10 @@ def discover_qa_cards(config: dict) -> dict[str, list[dict]]:
 
     all_qa_cards = client.get_qa_cards(qa_labels)
 
+    # SUP 팀 카드만 필터 (EXP 등 다른 팀 제외)
+    team_prefix = config.get("linear", {}).get("team_prefix", "SUP")
+    all_qa_cards = [c for c in all_qa_cards if c["identifier"].startswith(team_prefix)]
+
     result: dict[str, list[dict]] = {name: [] for name in user_map}
 
     for card in all_qa_cards:
@@ -487,13 +491,13 @@ def parse_test_phases(qa_card: dict) -> dict:
 
     for line in description.splitlines():
         stripped = line.strip().lstrip("*").strip()
-        if re.match(r"통합테스트\s*:", stripped):
+        if re.match(r"통합\s*테스트\s*:", stripped):
             has_integration_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
             start, end = _parse_date_range(date_part)
             if start and end:
                 integration = {"start": start, "end": end}
-        elif re.match(r"리그레션테스트\s*:", stripped):
+        elif re.match(r"리그레션\s*테스트\s*:", stripped):
             has_regression_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
             if re.match(r"\s*없음\s*$", date_part):
