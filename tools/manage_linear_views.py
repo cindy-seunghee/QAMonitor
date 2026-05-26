@@ -131,6 +131,48 @@ def create_view(name: str, team_id: str, filter_data: dict) -> dict:
     return result["customView"]
 
 
+def update_view(view_id: str, filter_data: dict) -> dict:
+    """기존 뷰의 필터를 업데이트한다."""
+    mutation = """
+    mutation($input: CustomViewUpdateInput!) {
+        customViewUpdate(id: $viewId, input: $input) {
+            success
+            customView { id name slugId }
+        }
+    }
+    """
+    # Linear API는 id를 별도 인자로 받음
+    mutation = """
+    mutation($viewId: String!, $input: CustomViewUpdateInput!) {
+        customViewUpdate(id: $viewId, input: $input) {
+            success
+            customView { id name slugId }
+        }
+    }
+    """
+    result = _client()._query(mutation, {
+        "viewId": view_id,
+        "input": {
+            "filterData": filter_data,
+        }
+    })["customViewUpdate"]
+
+    if not result["success"]:
+        raise RuntimeError(f"뷰 업데이트 실패: {view_id}")
+    return result["customView"]
+
+
+def _ensure_view(name: str, team_id: str, filter_data: dict, existing: dict) -> tuple[dict, bool]:
+    """뷰가 있으면 필터 업데이트, 없으면 생성. (view, created) 반환."""
+    if name in existing:
+        view_info = existing[name]
+        view = update_view(view_info["id"], filter_data)
+        return view, False
+    else:
+        view = create_view(name, team_id, filter_data)
+        return view, True
+
+
 def create_views_for_card(identifier: str) -> dict:
     """
     QA카드의 전체 잔여이슈 뷰 + 내 잔여이슈(Current User) 뷰를 생성한다.
@@ -151,58 +193,36 @@ def create_views_for_card(identifier: str) -> dict:
     skipped = []
     views = []
 
-    # 기존 뷰가 있으면 삭제 후 재생성 (필터 업데이트를 위해)
-    for view_name, view_info in existing.items():
-        try:
-            delete_view(view_info["id"])
-        except Exception:
-            pass
-
-    # 전체 잔여이슈 뷰
-    total_view_name = f"전체 잔여이슈 [{identifier}]"
-    filter_data = {
-        "parent": {"id": {"in": child_parent_ids}},
-        "state": {"name": {"in": valid_states}},
-    }
-    view = create_view(total_view_name, team_id, filter_data)
-    slug = view.get("slugId") or view["id"]
-    views.append({"name": "전체", "url": f"https://linear.app/buzzvil/view/{slug}"})
-    created.append("전체")
-
-    # 내 잔여이슈 뷰 (Current User)
-    my_view_name = f"내 잔여이슈 [{identifier}]"
-    filter_data = {
-        "assignee": {"isMe": {"eq": True}},
-        "parent": {"id": {"in": child_parent_ids}},
-        "state": {"name": {"in": valid_states}},
-    }
-    view = create_view(my_view_name, team_id, filter_data)
-    slug = view.get("slugId") or view["id"]
-    views.append({"name": "내 이슈", "url": f"https://linear.app/buzzvil/view/{slug}"})
-    created.append("내 이슈")
-
-    # 수정 확인 대기 뷰 (개발자 QA DONE)
-    dev_done_view_name = f"수정 확인 대기 [{identifier}]"
-    filter_data = {
-        "parent": {"id": {"in": child_parent_ids}},
-        "state": {"name": {"in": ["개발자 QA DONE"]}},
-    }
-    view = create_view(dev_done_view_name, team_id, filter_data)
-    slug = view.get("slugId") or view["id"]
-    views.append({"name": "수정 확인 대기", "url": f"https://linear.app/buzzvil/view/{slug}"})
-    created.append("수정 확인 대기")
-
-    # 협의 종료 이슈 뷰 (Won't Fix, Not a Bug, Duplicate 등)
+    # 뷰 정의: (표시명, 뷰 이름, 필터)
     neg_states = ["Canceled", "Duplicate", "Can't Reproduce", "Not a Bug", "Won't Fix"]
-    neg_view_name = f"협의 종료 [{identifier}]"
-    filter_data = {
-        "parent": {"id": {"in": child_parent_ids}},
-        "state": {"name": {"in": neg_states}},
-    }
-    view = create_view(neg_view_name, team_id, filter_data)
-    slug = view.get("slugId") or view["id"]
-    views.append({"name": "협의 종료", "url": f"https://linear.app/buzzvil/view/{slug}"})
-    created.append("협의 종료")
+    view_defs = [
+        ("전체", f"전체 잔여이슈 [{identifier}]", {
+            "parent": {"id": {"in": child_parent_ids}},
+            "state": {"name": {"in": valid_states}},
+        }),
+        ("내 이슈", f"내 잔여이슈 [{identifier}]", {
+            "assignee": {"isMe": {"eq": True}},
+            "parent": {"id": {"in": child_parent_ids}},
+            "state": {"name": {"in": valid_states}},
+        }),
+        ("수정 확인 대기", f"수정 확인 대기 [{identifier}]", {
+            "parent": {"id": {"in": child_parent_ids}},
+            "state": {"name": {"in": ["개발자 QA DONE"]}},
+        }),
+        ("협의 종료", f"협의 종료 [{identifier}]", {
+            "parent": {"id": {"in": child_parent_ids}},
+            "state": {"name": {"in": neg_states}},
+        }),
+    ]
+
+    for display_name, view_name, filter_data in view_defs:
+        view, is_new = _ensure_view(view_name, team_id, filter_data, existing)
+        slug = view.get("slugId") or view["id"]
+        views.append({"name": display_name, "url": f"https://linear.app/buzzvil/view/{slug}"})
+        if is_new:
+            created.append(display_name)
+        else:
+            skipped.append(display_name)
 
     return {"created": created, "skipped": skipped, "views": views}
 
