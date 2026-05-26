@@ -199,7 +199,17 @@ def run(config: dict) -> str:
                 except Exception as e:
                     print(f"  ✗ 테스트 기간 안내 DM 실패: {e}")
 
+        # ── 테스트 기간 내 카드만 발송 ──
+        in_test_cards = []
         for qa_card in normal_cards:
+            test_phases = parse_test_phases(qa_card)
+            phase = test_phases["current_phase"]
+            if phase in ("통합테스트", "리그레션테스트"):
+                in_test_cards.append(qa_card)
+            else:
+                print(f"    → {qa_card['identifier']}: {qa_card['title']} ({phase} — 발송 건너뜀)")
+
+        for qa_card in in_test_cards:
             card_id = qa_card['identifier']
             try:
                 print(f"\n[3/4] {card_id}: {qa_card['title']}")
@@ -396,7 +406,18 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
             except Exception as e:
                 print(f"  ✗ 테스트 기간 안내 DM 실패: {e}")
 
+    # ── 테스트 기간 내 카드만 발송 ──
+    from src.qa_discoverer import parse_test_phases
+    in_test_cards = []
     for qa_card in normal_cards:
+        test_phases = parse_test_phases(qa_card)
+        phase = test_phases["current_phase"]
+        if phase in ("통합테스트", "리그레션테스트"):
+            in_test_cards.append(qa_card)
+        else:
+            print(f"  → {qa_card['identifier']}: {qa_card['title']} ({phase} — 발송 건너뜀)")
+
+    for qa_card in in_test_cards:
         card_id = qa_card['identifier']
         try:
             print(f"  → {card_id}: {qa_card['title']}")
