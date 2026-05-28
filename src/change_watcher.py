@@ -701,29 +701,35 @@ def check_figma_changes(figma_targets: list[dict], card_id: str) -> list[dict]:
 
 
 def should_watch(test_phases: dict) -> bool:
-    """TC 작성 기간인지 판단.
-    - 테스트 전 → 항상 감시
-    - 통합테스트 시작일 당일 → 오전(12시 전)에만 마지막 1회 체크
+    """변경 감시 대상인지 판단.
+    - 테스트 전 → 감시 (통합테스트 일정 미정이면 스킵)
+    - 통합/리그레션 기간 내 → 감시
+    - 리그레션 있으면 리그레션 종료일까지, 없으면 통합 종료일까지
     """
     from datetime import datetime, timezone, timedelta
     kst = timezone(timedelta(hours=9))
-    now = datetime.now(kst)
-    today = now.strftime("%Y-%m-%d")
+    today = datetime.now(kst).strftime("%Y-%m-%d")
 
     current_phase = test_phases.get("current_phase", "")
-
-    # 테스트 전 → 감시 (단, 통합테스트 일정이 미정이면 스킵)
-    if current_phase == "테스트 전":
-        if not test_phases.get("integration"):
-            return False
-        return True
-
-    # 통합테스트 시작일 당일 → 오전(12시 전)에만 마지막 1회
     integration = test_phases.get("integration")
-    if integration and integration["start"] == today and now.hour < 12:
-        return True
+    regression = test_phases.get("regression")
 
-    return False
+    # 테스트 전 → 감시 (통합테스트 일정 미정이면 스킵)
+    if current_phase == "테스트 전":
+        return bool(integration)
+
+    # 종료일 결정: 리그레션 있으면 리그레션 종료일, 없으면 통합 종료일
+    end_date = None
+    if regression:
+        end_date = regression["end"]
+    elif integration:
+        end_date = integration["end"]
+
+    if not end_date:
+        return False
+
+    # 오늘이 종료일 이내면 감시
+    return today <= end_date
 
 
 _PRD_KEYWORDS = ["prd"]
