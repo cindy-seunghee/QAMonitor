@@ -491,13 +491,13 @@ def parse_test_phases(qa_card: dict) -> dict:
 
     for line in description.splitlines():
         stripped = line.strip().lstrip("*").strip()
-        if re.match(r"통합\s*테스트\s*:", stripped):
+        if re.match(r"통합.*테스트.*:", stripped):
             has_integration_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
             start, end = _parse_date_range(date_part)
             if start and end:
                 integration = {"start": start, "end": end}
-        elif re.match(r"리그레션\s*테스트\s*:", stripped):
+        elif re.match(r"리그레션.*테스트.*:", stripped):
             has_regression_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
             if re.match(r"\s*없음\s*$", date_part):
