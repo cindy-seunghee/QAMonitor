@@ -778,15 +778,17 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
                 print(f"  ✗ {msg}")
                 errors.append({"step": f"변경 감시 ({card_id})", "detail": str(e)})
 
-        if changed_results and manager_slack_id:
-            if not notifier:
-                notifier = SlackNotifier()
-            notifier.send_change_alert_dm(
-                slack_id=manager_slack_id,
-                card_results=changed_results,
-            )
-        elif changed_results:
-            print(f"      ⚠ {manager_name} slack_id 미설정 — 알림 건너뜀")
+        if changed_results:
+            change_channel = slack_cfg.get("change_alert_channel", "")
+            if change_channel:
+                if not notifier:
+                    notifier = SlackNotifier()
+                notifier.send_change_alert_dm(
+                    slack_id=change_channel,
+                    card_results=changed_results,
+                )
+            else:
+                print(f"      ⚠ change_alert_channel 미설정 — 알림 건너뜀")
 
     _notify_errors(config, errors)
     print("─" * 50)
