@@ -122,12 +122,14 @@ def run(config: dict) -> str:
             print(f"    → 진행중인 QA카드 없음 — 발송 건너뜀")
             continue
 
-        # ── 운영검증 라벨 하위이슈 수집 ──
+        # ── 운영검증 라벨 하위이슈 수집 (Done 카드 포함) ──
         from src.linear_client import LinearClient
         monitoring_data = []  # [{"card": {...}, "issues": [...]}, ...]
         normal_cards = []
         lc = LinearClient()
-        for qa_card in active:
+        # 운영검증은 Done 카드도 체크 (Canceled만 제외)
+        all_non_canceled = [c for c in cards if c["state"]["name"] != "Canceled"]
+        for qa_card in all_non_canceled:
             try:
                 children = lc.get_child_issues(qa_card["id"])
                 # "운영검증" 라벨 + Done/Canceled 제외
@@ -151,10 +153,13 @@ def run(config: dict) -> str:
                         ],
                     })
                 else:
-                    normal_cards.append(qa_card)
+                    # active 카드만 normal_cards에 추가 (Done 등 제외)
+                    if qa_card in active:
+                        normal_cards.append(qa_card)
             except Exception as e:
                 print(f"  ⚠ {qa_card['identifier']} 하위이슈 조회 실패: {e}")
-                normal_cards.append(qa_card)
+                if qa_card in active:
+                    normal_cards.append(qa_card)
 
         # ── 운영검증 DM 일괄 발송 ──
         if monitoring_data:
@@ -492,11 +497,13 @@ def run_monitoring_for_assignee(config: dict, assignee_name: str) -> None:
         return
 
     cards = cards_by_manager.get(assignee_name, [])
-    active = get_active_cards(cards)
+
+    # 운영검증은 Done 카드도 체크 (Canceled만 제외)
+    all_non_canceled = [c for c in cards if c["state"]["name"] != "Canceled"]
 
     lc = LinearClient()
     monitoring_data = []
-    for qa_card in active:
+    for qa_card in all_non_canceled:
         try:
             children = lc.get_child_issues(qa_card["id"])
             verification_issues = [
