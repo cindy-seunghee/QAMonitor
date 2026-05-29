@@ -702,7 +702,7 @@ class SlackNotifier:
         self, slack_id: str, cards_info: list[dict],
     ) -> None:
         """테스트 기간 미기재 QA카드 안내 DM.
-        cards_info: [{"identifier": "SUP-2300", "title": "...", "url": "...", "missing": ["통합테스트", "리그레션테스트"]}, ...]
+        cards_info: [{"identifier": "SUP-2300", "title": "...", "url": "...", "missing": ["기능테스트", "리그레션테스트"]}, ...]
         """
         lines = [":bell: *테스트 기간 기재 안내*\n"]
         lines.append("QA카드 Description에 테스트 기간이 누락되어 있습니다.\n")
@@ -710,7 +710,7 @@ class SlackNotifier:
             missing_str = ", ".join(card["missing"])
             lines.append(f"• <{card['url']}|{card['identifier']} {card['title']}> — _{missing_str}_")
         lines.append("")
-        lines.append("_`통합테스트: M/DD ~ M/DD` , `리그레션테스트: M/DD ~ M/DD` 형식으로 기재해주세요._")
+        lines.append("_`기능테스트: M/DD ~ M/DD` , `리그레션테스트: M/DD ~ M/DD` 형식으로 기재해주세요._")
         lines.append("_리그레션테스트가 없는 경우 `리그레션테스트: 없음` 으로 기재해주세요._")
 
         text = "\n".join(lines)

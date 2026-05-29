@@ -312,7 +312,7 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "") -> dict:
     탐색 전략:
       1) '현재 진행률' 텍스트 → 우측 셀 (일반 TC 템플릿)
       2) 통계 테이블 기반 (커스텀 매체사 TC 템플릿 — '표지' 탭)
-         - 통합테스트: '전체 테스트 통계' → '전체' 행 → '진행률' 열
+         - 기능테스트: '전체 테스트 통계' → '전체' 행 → '진행률' 열
          - 리그레션테스트: '리그레션 테스트 통계' → '전체' 행 → '진행률' 열
 
     Returns: {"value": float|None, "error": str|None, "sheet_url": str|None}
@@ -355,7 +355,7 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "") -> dict:
                             return result
                     return {"value": None, "error": "리그레션 진행률 셀을 찾을 수 없음", "sheet_url": url}
                 else:
-                    # 통합테스트: 바로 우측 셀
+                    # 기능테스트: 바로 우측 셀
                     raw = worksheet.cell(found.row, found.col + 1).value
                     result = _parse_progress_value(raw, url, "현재 진행률 우측 (통합)")
                     result["step_counts"] = _read_step_counts(worksheet, test_phase)
@@ -473,11 +473,11 @@ def _parse_date_range(text: str) -> tuple[str | None, str | None]:
 
 def parse_test_phases(qa_card: dict) -> dict:
     """
-    QA카드 Description에서 통합테스트/리그레션테스트 기간을 추출한다.
+    QA카드 Description에서 기능테스트/리그레션테스트 기간을 추출한다.
     Returns: {
         "integration": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} | None,
         "regression": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} | None,
-        "current_phase": "통합테스트" | "리그레션테스트" | "테스트 전" | "테스트 완료"
+        "current_phase": "기능테스트" | "리그레션테스트" | "테스트 전" | "테스트 완료"
     }
     """
     from datetime import datetime
@@ -491,7 +491,7 @@ def parse_test_phases(qa_card: dict) -> dict:
 
     for line in description.splitlines():
         stripped = line.strip().lstrip("*").strip()
-        if re.match(r"통합.*테스트.*:", stripped):
+        if re.match(r"(통합|기능).*테스트.*:", stripped):
             has_integration_keyword = True
             date_part = stripped.split(":", 1)[1].strip()
             start, end = _parse_date_range(date_part)
@@ -510,9 +510,9 @@ def parse_test_phases(qa_card: dict) -> dict:
     # 기간 누락 항목 수집
     missing_dates: list[str] = []
     if not has_integration_keyword:
-        missing_dates.append("통합테스트")
+        missing_dates.append("기능테스트")
     elif not integration:
-        missing_dates.append("통합테스트 날짜")
+        missing_dates.append("기능테스트 날짜")
     if not has_regression_keyword:
         if not regression_skipped:
             missing_dates.append("리그레션테스트")
@@ -526,7 +526,7 @@ def parse_test_phases(qa_card: dict) -> dict:
     current_phase = "테스트 전"
 
     if integration and integration["start"] <= today <= integration["end"]:
-        current_phase = "통합테스트"
+        current_phase = "기능테스트"
     elif regression and regression["start"] <= today <= regression["end"]:
         current_phase = "리그레션테스트"
     elif regression and today > regression["end"]:
@@ -599,7 +599,7 @@ def calc_progress_status(test_phases: dict, actual_pct: float | str) -> dict:
         }
 
     # 현재 단계의 기간 가져오기
-    if current_phase == "통합테스트" and test_phases.get("integration"):
+    if current_phase == "기능테스트" and test_phases.get("integration"):
         phase = test_phases["integration"]
     elif current_phase == "리그레션테스트" and test_phases.get("regression"):
         phase = test_phases["regression"]

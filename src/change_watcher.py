@@ -702,7 +702,7 @@ def check_figma_changes(figma_targets: list[dict], card_id: str) -> list[dict]:
 
 def should_watch(test_phases: dict) -> bool:
     """변경 감시 대상인지 판단.
-    - 테스트 전 → 감시 (통합테스트 일정 미정이면 스킵)
+    - 테스트 전 → 감시 (기능테스트 일정 미정이면 스킵)
     - 통합/리그레션 기간 내 → 감시
     - 리그레션 있으면 리그레션 종료일까지, 없으면 통합 종료일까지
     """
@@ -714,7 +714,7 @@ def should_watch(test_phases: dict) -> bool:
     integration = test_phases.get("integration")
     regression = test_phases.get("regression")
 
-    # 테스트 전 → 감시 (통합테스트 일정 미정이면 스킵)
+    # 테스트 전 → 감시 (기능테스트 일정 미정이면 스킵)
     if current_phase == "테스트 전":
         return bool(integration)
 

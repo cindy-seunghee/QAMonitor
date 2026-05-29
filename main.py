@@ -209,7 +209,7 @@ def run(config: dict) -> str:
         for qa_card in normal_cards:
             test_phases = parse_test_phases(qa_card)
             phase = test_phases["current_phase"]
-            if phase in ("통합테스트", "리그레션테스트"):
+            if phase in ("기능테스트", "리그레션테스트"):
                 in_test_cards.append(qa_card)
             else:
                 print(f"    → {qa_card['identifier']}: {qa_card['title']} ({phase} — 발송 건너뜀)")
@@ -417,7 +417,7 @@ def run_for_assignee(config: dict, assignee_name: str) -> None:
     for qa_card in normal_cards:
         test_phases = parse_test_phases(qa_card)
         phase = test_phases["current_phase"]
-        if phase in ("통합테스트", "리그레션테스트"):
+        if phase in ("기능테스트", "리그레션테스트"):
             in_test_cards.append(qa_card)
         else:
             print(f"  → {qa_card['identifier']}: {qa_card['title']} ({phase} — 발송 건너뜀)")

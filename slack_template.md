@@ -16,7 +16,7 @@ format: 미해결 결함을 확인해주세요 :mulgae_sad:
 # 스레드: 담당자별 현황
 sections: assignee_detail
 
-# 스레드: 배포 기준 체크리스트 [통합테스트]
+# 스레드: 배포 기준 체크리스트 [기능테스트]
 sections: exit_checklist
 
 # 스레드: 배포 기준 체크리스트 [리그레션테스트]
