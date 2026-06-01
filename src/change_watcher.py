@@ -380,15 +380,12 @@ def _parse_readable_diff(old_lines: list[str], new_lines: list[str]) -> list[dic
                     detail = _extract_change_detail(rm_raw, raw, old_lines, rm_idx)
                     if detail:
                         section = detail["section"]
-                        if detail["label"]:
-                            desc = f"{detail['label']}: '{detail['old']}' → '{detail['new']}'"
-                        else:
-                            desc = f"'{detail['old']}' → '{detail['new']}'"
-                        changes.append({"type": "modified", "section": section, "detail": desc, "is_table": detail.get("is_table", False)})
+                        label = detail["label"]
+                        changes.append({"type": "modified", "section": section, "label": label, "old": detail["old"], "new": detail["new"], "is_table": detail.get("is_table", False)})
                     else:
                         section = _find_heading_path(old_lines, rm_idx)
                         is_table = bool(_parse_table_row(rm_raw))
-                        changes.append({"type": "modified", "section": section, "detail": f"'{_clean_line(rm_raw)}' → '{clean}'", "is_table": is_table})
+                        changes.append({"type": "modified", "section": section, "label": "", "old": _clean_line(rm_raw), "new": clean, "is_table": is_table})
                 else:
                     section = _find_heading_path(new_lines, new_idx)
                     is_table = bool(_parse_table_row(raw))
@@ -416,6 +413,34 @@ def _parse_readable_diff(old_lines: list[str], new_lines: list[str]) -> list[dic
     return changes
 
 
+MAX_DETAIL_LEN = 40
+
+
+def _truncate(text: str, max_len: int = MAX_DETAIL_LEN) -> str:
+    """텍스트를 max_len자로 자르고 초과 시 ... 추가."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+def _format_detail(c: dict) -> str:
+    """변경 항목 하나를 포맷팅."""
+    is_table = c.get("is_table", False)
+    table_tag = "[표] " if is_table else ""
+    change_type = c.get("type", "")
+
+    if change_type == "modified":
+        label = c.get("label", "")
+        old = _truncate(c.get("old", ""))
+        new = _truncate(c.get("new", ""))
+        header = label if label else f"{table_tag}수정"
+        return f"{header}\n>             변경 전: _{old}_\n>             변경 후: *{new}*"
+    else:
+        # 추가/삭제
+        detail = c.get("detail", "")
+        return f"{table_tag}{_truncate(detail)}"
+
+
 def _format_grouped(items: list[dict]) -> list[str]:
     """같은 섹션의 항목들을 그룹핑하여 포맷팅.
     같은 섹션이 연속되면 섹션명 한 번만 표시, 하위에 detail 나열.
@@ -425,21 +450,16 @@ def _format_grouped(items: list[dict]) -> list[str]:
 
     for c in items:
         section = c.get("section", "")
-        detail = c.get("detail", "")
-        is_table = c.get("is_table", False)
-        table_tag = "[표] " if is_table else ""
+        formatted = _format_detail(c)
 
         if section and section == prev_section:
-            # 같은 섹션 — 하위 항목만
-            lines.append(f"        \u25E6 {table_tag}{detail}")
+            lines.append(f"     \u25E6 {formatted}")
         elif section:
-            # 새 섹션
-            lines.append(f"    \u2022 {section}")
-            lines.append(f"        \u25E6 {table_tag}{detail}")
+            lines.append(f"  \u2022 {section}")
+            lines.append(f"     \u25E6 {formatted}")
             prev_section = section
         else:
-            # 섹션 없음
-            lines.append(f"    \u25E6 {table_tag}{detail}")
+            lines.append(f"  \u25E6 {formatted}")
             prev_section = None
 
     return lines
