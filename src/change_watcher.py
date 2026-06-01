@@ -127,6 +127,17 @@ def _html_to_text(html: str) -> str:
     text = re.sub(r"<p[^>]*>", "\n", text)
     text = re.sub(r"</p>", "", text)
 
+    # 이미지 태그 → 플레이스홀더 (추가/삭제/교체 감지용)
+    def _img_placeholder(m):
+        src = re.search(r'src="([^"]*)"', m.group(0))
+        # src URL의 해시로 이미지 식별 (URL 자체는 노출 안 함)
+        if src:
+            import hashlib
+            img_id = hashlib.md5(src.group(1).encode()).hexdigest()[:8]
+            return f"[이미지:{img_id}]"
+        return "[이미지]"
+    text = re.sub(r"<img[^>]*>", _img_placeholder, text)
+
     # 나머지 HTML 태그 제거
     text = re.sub(r"<[^>]+>", "", text)
 
