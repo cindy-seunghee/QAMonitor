@@ -79,7 +79,7 @@ def _fetch_confluence_page(page_id: str) -> dict | None:
 
     # HTML → 텍스트 변환 (간이 파싱)
     body_text = _html_to_text(body_html)
-    return {"title": title, "body": body_text}
+    return {"title": title, "body": body_text, "html": body_html}
 
 
 def _html_to_text(html: str) -> str:
@@ -149,6 +149,175 @@ def _html_to_text(html: str) -> str:
     return text.strip()
 
 
+# ── HTML 트리 기반 비교 ────────────────────────────────────────────────
+
+
+def _html_to_nodes(html: str) -> list[dict]:
+    """HTML을 플랫한 노드 리스트로 변환. 각 노드에 경로(path)와 텍스트(text)를 부여.
+    Returns: [{"path": "섹션 > 표 이름 > 행 제목 > 열 제목", "text": "셀 내용"}, ...]
+    """
+    from bs4 import BeautifulSoup
+    import hashlib
+
+    soup = BeautifulSoup(html, "html.parser")
+    nodes = []
+    current_heading = ""
+
+    for el in soup.children:
+        _walk_element(el, current_heading, nodes)
+
+    # 헤딩 트래킹을 위해 순차 처리
+    result = []
+    heading = ""
+    for n in nodes:
+        if n.get("_heading"):
+            heading = n["_heading"]
+            continue
+        n["path"] = f"{heading} > {n['path']}" if heading and n["path"] else heading or n["path"]
+        result.append(n)
+    return result
+
+
+def _walk_element(el, heading: str, nodes: list):
+    """HTML 요소를 재귀적으로 순회하며 노드 리스트에 추가."""
+    from bs4 import NavigableString, Tag
+    import hashlib
+
+    if isinstance(el, NavigableString):
+        return
+    if not isinstance(el, Tag):
+        return
+
+    # 헤딩
+    if el.name in ("h1", "h2", "h3", "h4", "h5", "h6"):
+        nodes.append({"_heading": el.get_text(strip=True)})
+        return
+
+    # 테이블
+    if el.name == "table":
+        rows = el.find_all("tr")
+        if not rows:
+            return
+        # 헤더 행에서 열 이름 추출
+        header_cells = rows[0].find_all(["th", "td"])
+        col_names = [c.get_text(strip=True) for c in header_cells]
+
+        for row in rows[1:]:
+            cells = row.find_all(["th", "td"])
+            row_name = cells[0].get_text(strip=True)[:30] if cells else ""
+            for j, cell in enumerate(cells):
+                col_name = col_names[j] if j < len(col_names) else f"열{j}"
+                # 이미지 처리
+                text = _cell_text_with_images(cell)
+                if text.strip():
+                    nodes.append({
+                        "path": f"[표] {row_name} > {col_name}",
+                        "text": text.strip(),
+                    })
+        return
+
+    # 리스트 아이템
+    if el.name == "li":
+        text = _cell_text_with_images(el)
+        if text.strip():
+            nodes.append({"path": "", "text": text.strip()})
+        return
+
+    # 일반 단락
+    if el.name == "p":
+        text = _cell_text_with_images(el)
+        if text.strip():
+            nodes.append({"path": "", "text": text.strip()})
+        return
+
+    # 나머지 → 자식 순회
+    for child in el.children:
+        _walk_element(child, heading, nodes)
+
+
+def _cell_text_with_images(el) -> str:
+    """셀/요소 내부 텍스트를 추출하되, <img>는 [이미지:해시]로 변환."""
+    import hashlib
+    parts = []
+    for child in el.descendants:
+        from bs4 import NavigableString, Tag
+        if isinstance(child, NavigableString):
+            parts.append(str(child))
+        elif isinstance(child, Tag) and child.name == "img":
+            src = child.get("src", "")
+            img_id = hashlib.md5(src.encode()).hexdigest()[:8] if src else "unknown"
+            parts.append(f"[이미지:{img_id}]")
+    return " ".join("".join(parts).split())
+
+
+def _compare_node_lists(old_nodes: list[dict], new_nodes: list[dict]) -> list[dict]:
+    """두 노드 리스트를 경로+텍스트 기준으로 비교.
+    Returns: [{"type": "modified"|"added"|"removed", "path": str, "old": str, "new": str}, ...]
+    """
+    # 경로별로 그룹핑 (같은 경로가 여러 개일 수 있으므로 순서 유지)
+    old_by_path: dict[str, list[str]] = {}
+    new_by_path: dict[str, list[str]] = {}
+
+    for n in old_nodes:
+        old_by_path.setdefault(n["path"], []).append(n["text"])
+    for n in new_nodes:
+        new_by_path.setdefault(n["path"], []).append(n["text"])
+
+    changes = []
+    all_paths = list(dict.fromkeys(list(old_by_path.keys()) + list(new_by_path.keys())))
+
+    for path in all_paths:
+        old_texts = old_by_path.get(path, [])
+        new_texts = new_by_path.get(path, [])
+
+        # 같은 경로의 텍스트들을 순서대로 비교
+        max_len = max(len(old_texts), len(new_texts))
+        for i in range(max_len):
+            old_t = old_texts[i] if i < len(old_texts) else None
+            new_t = new_texts[i] if i < len(new_texts) else None
+
+            if old_t and new_t:
+                if old_t != new_t:
+                    changes.append({"type": "modified", "path": path, "old": old_t, "new": new_t})
+            elif old_t and not new_t:
+                changes.append({"type": "removed", "path": path, "old": old_t, "new": ""})
+            elif new_t and not old_t:
+                changes.append({"type": "added", "path": path, "old": "", "new": new_t})
+
+    return changes
+
+
+def _format_tree_changes(changes: list[dict]) -> str:
+    """트리 비교 결과를 사람이 읽기 쉬운 형태로 포맷팅."""
+    modified = [c for c in changes if c["type"] == "modified"]
+    added = [c for c in changes if c["type"] == "added"]
+    removed = [c for c in changes if c["type"] == "removed"]
+
+    lines = []
+    if modified:
+        lines.append(f"\u2022 *수정* ({len(modified)}건)")
+        for c in modified:
+            path = c["path"] or "(본문)"
+            old, new = _truncate_diff_pair(c["old"], c["new"])
+            lines.append(f"  \u2022 {path}")
+            lines.append(f">       변경 전: _{old}_")
+            lines.append(f">       변경 후: *{new}*")
+
+    if added:
+        lines.append(f"\u2022 *추가* ({len(added)}건)")
+        for c in added:
+            path = c["path"] or "(본문)"
+            lines.append(f"  \u2022 {path}: {_truncate(c['new'])}")
+
+    if removed:
+        lines.append(f"\u2022 *삭제* ({len(removed)}건)")
+        for c in removed:
+            path = c["path"] or "(본문)"
+            lines.append(f"  \u2022 {path}: ~{_truncate(c['old'])}~")
+
+    return "\n".join(lines)
+
+
 # ── PRD Description 변경 감지 ─────────────────────────────────────────
 
 
@@ -188,13 +357,55 @@ def check_description_change(qa_card: dict) -> dict | None:
         if not page:
             return None
         description = page["body"]
+        prd_html = page.get("html", "")
         prd_title = page["title"]
         prd_id = f"Confluence #{prd_source['page_id']}"
         prd_url = prd_source["url"]
 
+        # Confluence → 트리 기반 비교 (HTML 스냅샷 사용)
+        snap_html_path = SNAPSHOT_DIR / f"prd_{card_id}.html"
+        SNAPSHOT_DIR.mkdir(exist_ok=True)
+
+        if not snap_html_path.exists():
+            snap_html_path.write_text(prd_html, encoding="utf-8")
+            # 텍스트 스냅샷도 저장 (하위 호환)
+            snap_path = _snapshot_path_prd(card_id)
+            snap_path.write_text(description, encoding="utf-8")
+            print(f"      PRD 초기 스냅샷 저장 (트리): {prd_id}")
+            return None
+
+        old_html = snap_html_path.read_text(encoding="utf-8")
+        if old_html == prd_html:
+            return None
+
+        # 트리 기반 비교
+        old_nodes = _html_to_nodes(old_html)
+        new_nodes = _html_to_nodes(prd_html)
+        changes = _compare_node_lists(old_nodes, new_nodes)
+
+        if not changes:
+            snap_html_path.write_text(prd_html, encoding="utf-8")
+            snap_path = _snapshot_path_prd(card_id)
+            snap_path.write_text(description, encoding="utf-8")
+            return None
+
+        snap_html_path.write_text(prd_html, encoding="utf-8")
+        snap_path = _snapshot_path_prd(card_id)
+        snap_path.write_text(description, encoding="utf-8")
+        diff_text = _format_tree_changes(changes)
+
+        return {
+            "card_id": card_id,
+            "prd_id": prd_id,
+            "title": prd_title,
+            "diff_text": diff_text,
+            "card_url": prd_url,
+        }
+
     else:
         return None
 
+    # Linear PRD — 기존 텍스트 기반 비교
     snap_path = _snapshot_path_prd(card_id)
     SNAPSHOT_DIR.mkdir(exist_ok=True)
 
@@ -421,6 +632,33 @@ def _truncate(text: str, max_len: int = MAX_DETAIL_LEN) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len] + "..."
+
+
+def _truncate_diff_pair(old: str, new: str, max_len: int = MAX_DETAIL_LEN) -> tuple[str, str]:
+    """변경 전후 텍스트에서 실제 바뀐 부분 주변을 표시."""
+    from difflib import SequenceMatcher
+    if len(old) <= max_len and len(new) <= max_len:
+        return old, new
+
+    # 첫 번째 다른 위치 찾기
+    sm = SequenceMatcher(None, old, new)
+    first_diff_pos = None
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op != "equal":
+            first_diff_pos = min(i1, j1)
+            break
+
+    if first_diff_pos is None:
+        return _truncate(old, max_len), _truncate(new, max_len)
+
+    # 변경 위치 주변으로 잘라서 표시
+    start = max(0, first_diff_pos - 10)
+    prefix = "..." if start > 0 else ""
+    old_slice = old[start:start + max_len]
+    new_slice = new[start:start + max_len]
+    old_suffix = "..." if start + max_len < len(old) else ""
+    new_suffix = "..." if start + max_len < len(new) else ""
+    return f"{prefix}{old_slice}{old_suffix}", f"{prefix}{new_slice}{new_suffix}"
 
 
 def _format_detail(c: dict) -> str:
