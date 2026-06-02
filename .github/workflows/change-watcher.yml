@@ -1,0 +1,51 @@
+name: PRD/Figma Change Watcher
+
+on:
+  schedule:
+    - cron: '0 0 * * 1-5'   # 평일 09:00 KST
+    - cron: '0 2 * * 1-5'   # 평일 11:00 KST
+    - cron: '0 4 * * 1-5'   # 평일 13:00 KST
+    - cron: '0 6 * * 1-5'   # 평일 15:00 KST
+    - cron: '0 8 * * 1-5'   # 평일 17:00 KST
+
+  workflow_dispatch:
+
+jobs:
+  watch-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create config.yaml
+        env:
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: echo "$CONFIG_YAML" > config.yaml
+
+      - name: Restore snapshots cache
+        uses: actions/cache@v4
+        with:
+          path: snapshots
+          key: change-snapshots-${{ github.run_id }}
+          restore-keys: |
+            change-snapshots-
+
+      - name: Ensure snapshots directory
+        run: mkdir -p snapshots
+
+      - name: Run change watcher
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          CONFLUENCE_TOKEN: ${{ secrets.CONFLUENCE_TOKEN }}
+        run: python main.py --watch-changes
