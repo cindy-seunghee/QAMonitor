@@ -219,6 +219,10 @@ class SlackNotifier:
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": lines},
             },
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "🤖 _이 메시지는 QA Monitor봇이 자동 발송합니다. 테스트 운영 중이므로 내용이 부정확할 수 있습니다._"}],
+            },
         ]
         return blocks
 
