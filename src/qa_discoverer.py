@@ -240,7 +240,7 @@ def _read_block_details(worksheet, test_phase: str) -> list[dict] | None:
             return None
 
         # Block 케이스 스캔
-        block_pattern = re.compile(r"Block\s*:\s*(SUP-\d+)", re.IGNORECASE)
+        issue_pattern = re.compile(r"(SUP-\d+)", re.IGNORECASE)
         issue_counts: dict[str, int] = {}
 
         for row in all_vals[header_row + 1:]:
@@ -252,7 +252,7 @@ def _read_block_details(worksheet, test_phase: str) -> list[dict] | None:
                     issue_id = "미지정"
                     if issue_col is not None and issue_col < len(row):
                         issue_text = row[issue_col].strip()
-                        m = block_pattern.search(issue_text)
+                        m = issue_pattern.search(issue_text)
                         if m:
                             issue_id = m.group(1)
                     issue_counts[issue_id] = issue_counts.get(issue_id, 0) + 1
