@@ -285,8 +285,8 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     platform_cards_html = ""
     platform_bar_html = ""
     total_all_platform = sum(p["total"] for p in platform_breakdown.values()) or 1
-    platform_icons = {"iOS": "\U0001F34E", "Android": "\U0001F916", "Web": "\U0001F310", "공통": "\u2699\uFE0F"}
-    platform_colors = {"iOS": "#555", "Android": "#3ddc84", "Web": "#0065ff", "공통": "#8777d9"}
+    platform_icons = {"iOS": "\U0001F34E", "Android": "\U0001F916", "Web": "\U0001F310", "Server": "\U0001F5A5\uFE0F", "공통": "\u2699\uFE0F"}
+    platform_colors = {"iOS": "#555", "Android": "#3ddc84", "Web": "#0065ff", "Server": "#f59e0b", "공통": "#8777d9"}
     for pname, pdata in platform_breakdown.items():
         icon = platform_icons.get(pname, "")
         high_cls = "metric-red" if pdata["high"] > 0 else "metric-green"

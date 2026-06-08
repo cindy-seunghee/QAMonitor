@@ -325,25 +325,80 @@ def _today_new_issues(bug_issues: list[dict]) -> int:
     return count
 
 
+def _parse_platform_from_description(description: str) -> list[str]:
+    """이슈 description의 Platform 섹션에서 체크된 항목을 추출."""
+    import re
+    platforms = []
+    in_platform_section = False
+
+    for line in description.splitlines():
+        stripped = line.strip()
+        # Platform 섹션 시작 감지
+        if re.search(r"Platform", stripped, re.IGNORECASE):
+            in_platform_section = True
+            continue
+        # 다른 섹션 시작 시 종료
+        if in_platform_section and stripped.startswith("#"):
+            break
+        # 체크된 항목 파싱: - [X] 또는 - [x]
+        if in_platform_section:
+            m = re.match(r"- \[([xX])\]\s*(.*)", stripped)
+            if m:
+                platforms.append(m.group(2).strip())
+
+    return platforms
+
+
 def _platform_breakdown(issues: list[dict]) -> dict[str, dict]:
-    """이슈 제목/라벨에서 플랫폼을 추출하여 분류"""
-    platforms = {"iOS": [], "Android": [], "Web": [], "공통": []}
+    """이슈 description의 Platform 체크박스 → 플랫폼 분류. 없으면 제목/라벨 키워드 폴백."""
+    platforms = {"iOS": [], "Android": [], "Web": [], "Server": [], "공통": []}
+
+    # description Platform → 대시보드 분류 매핑
+    platform_map = {
+        "ios": "iOS",
+        "android": "Android",
+        "android & ios": "공통",
+        "dash": "Web",
+        "server": "Server",
+        "web": "Web",
+    }
 
     for issue in issues:
-        title = (issue.get("title") or "").lower()
-        labels = [l["name"].lower() for l in issue.get("labels", {}).get("nodes", [])]
-        all_text = title + " " + " ".join(labels)
+        # 1) description Platform 체크박스에서 추출
+        desc = issue.get("description") or ""
+        checked = _parse_platform_from_description(desc)
 
         matched = False
-        if any(k in all_text for k in ["ios", "iphone", "swift"]):
-            platforms["iOS"].append(issue)
-            matched = True
-        if any(k in all_text for k in ["android", "aos", "kotlin"]):
-            platforms["Android"].append(issue)
-            matched = True
-        if any(k in all_text for k in ["web", "웹", "html", "frontend"]):
-            platforms["Web"].append(issue)
-            matched = True
+        if checked:
+            for item in checked:
+                mapped = platform_map.get(item.lower())
+                if mapped:
+                    if isinstance(mapped, list):
+                        for p in mapped:
+                            platforms[p].append(issue)
+                    else:
+                        platforms[mapped].append(issue)
+                    matched = True
+
+        # 2) 폴백: 제목/라벨 키워드 매칭
+        if not matched:
+            title = (issue.get("title") or "").lower()
+            labels = [l["name"].lower() for l in issue.get("labels", {}).get("nodes", [])]
+            all_text = title + " " + " ".join(labels)
+
+            if any(k in all_text for k in ["ios", "iphone", "swift"]):
+                platforms["iOS"].append(issue)
+                matched = True
+            if any(k in all_text for k in ["android", "aos", "kotlin"]):
+                platforms["Android"].append(issue)
+                matched = True
+            if any(k in all_text for k in ["web", "웹", "html", "frontend", "dash"]):
+                platforms["Web"].append(issue)
+                matched = True
+            if any(k in all_text for k in ["server", "서버", "backend", "api"]):
+                platforms["Server"].append(issue)
+                matched = True
+
         if not matched:
             platforms["공통"].append(issue)
 

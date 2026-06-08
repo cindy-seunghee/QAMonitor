@@ -35,6 +35,7 @@ class LinearClient:
         id
         identifier
         title
+        description
         priority
         priorityLabel
         url
