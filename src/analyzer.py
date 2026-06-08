@@ -263,11 +263,13 @@ def _calc_trend(issues: list[dict], days: int = 14, resolved_states: list[str] =
             if day_str in date_labels:
                 created_per_day[day_str] += 1
 
-        # 해결일: completedAt 우선, 없으면 해결 상태의 updatedAt 사용
+        # 해결일: completedAt → canceledAt → QA DONE 상태는 updatedAt 폴백
         completed = _parse_dt(issue.get("completedAt"))
         if not completed:
+            completed = _parse_dt(issue.get("canceledAt"))
+        if not completed:
             state_name = issue.get("state", {}).get("name", "")
-            if state_name in resolved_states:
+            if state_name in ("Staging QA DONE", "Prodmini QA DONE", "Prod QA DONE"):
                 completed = _parse_dt(issue.get("updatedAt"))
         if completed:
             day_str = completed.strftime("%m/%d")
