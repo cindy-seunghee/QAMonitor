@@ -226,7 +226,7 @@ def _read_block_details(worksheet, test_phase: str) -> list[dict] | None:
         else:
             for i, h in enumerate(header):
                 h_stripped = h.strip()
-                if h_stripped in ("AOS", "iOS", "Android") and "리그" not in h_stripped:
+                if h_stripped in ("AOS", "iOS", "Android", "Admin", "Dash") and "리그" not in h_stripped:
                     # 대응하는 Issue num 열 찾기
                     issue_col = None
                     for j, hj in enumerate(header):
@@ -366,9 +366,37 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "") -> dict:
             # 커스텀 매체사 시트: 표지 탭 통계 테이블 기반
             section = "리그레션 테스트 통계" if test_phase == "리그레션테스트" else "전체 테스트 통계"
             result = _find_progress_by_stats_table(worksheet, section, url)
-            if result:
-                return result
-            return {"value": None, "error": f"'{section}' 통계 테이블을 찾을 수 없음", "sheet_url": url}
+            if not result:
+                return {"value": None, "error": f"'{section}' 통계 테이블을 찾을 수 없음", "sheet_url": url}
+
+            # TC 탭 순회하며 step_counts + block_details 합산
+            skip_tabs = {"표지", "변경 및 문의", "테스트 가이드"}
+            total_step_counts: dict[str, int] = {}
+            all_block_details: list[dict] = []
+
+            for ws in spreadsheet.worksheets():
+                if ws.title in skip_tabs:
+                    continue
+                counts = _read_step_counts(ws, test_phase)
+                if counts:
+                    for k, v in counts.items():
+                        total_step_counts[k] = total_step_counts.get(k, 0) + v
+                blocks = _read_block_details(ws, test_phase)
+                if blocks:
+                    all_block_details.extend(blocks)
+
+            # block_details 이슈번호별 합산
+            if all_block_details:
+                merged: dict[str, int] = {}
+                for bd in all_block_details:
+                    merged[bd["issue"]] = merged.get(bd["issue"], 0) + bd["count"]
+                result["block_details"] = sorted(
+                    [{"issue": k, "count": v} for k, v in merged.items()],
+                    key=lambda x: x["count"], reverse=True,
+                )
+
+            result["step_counts"] = total_step_counts or None
+            return result
 
     except PermissionError:
         print(f"      ⚠ 구글시트 접근 불가 (권한 없음)")
