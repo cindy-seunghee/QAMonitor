@@ -609,7 +609,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   <!-- ── 플랫폼별 비교 ── -->
   <div class="section">
     <div class="section-title">플랫폼별 이슈 비교</div>
-    <div class="grid-4">
+    <div class="grid-5">
       {platform_cards_html}
     </div>
     <div class="card" style="margin-top:16px">
