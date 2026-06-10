@@ -225,16 +225,16 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
             <td class="text-center text-muted">{created}</td>
         </tr>"""
 
-    # 협의 종료 이슈 섹션 (우선순위 순, 최대 5건)
+    # 협의 종료 이슈 섹션 (우선순위 순, 5건 + 나머지 펼치기)
     negotiated_html = ""
     if negotiated_closed:
+        neg_extra = ""
         sorted_neg = sorted(
             negotiated_closed,
             key=lambda i: PRIORITY_ORDER.get(i.get("priorityLabel", "No priority"), 99),
         )
-        display_neg = sorted_neg[:5]
         neg_rows = ""
-        for ni in display_neg:
+        for idx, ni in enumerate(sorted_neg):
             ni_id = ni.get("identifier", "")
             ni_title = ni.get("title", "")
             ni_priority = ni.get("priorityLabel", "No priority")
@@ -242,7 +242,8 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
             ni_assignee = (ni.get("assignee") or {}).get("displayName") or "미지정"
             ni_url = ni.get("url", "#")
             ni_badge_cls = priority_badge.get(ni_priority, "badge-gray")
-            neg_rows += f"""
+            if idx < 5:
+                neg_rows += f"""
             <tr>
                 <td><a href="{ni_url}" target="_blank" class="issue-link">{ni_id}</a></td>
                 <td>{ni_title[:60]}{'...' if len(ni_title) > 60 else ''}</td>
@@ -250,28 +251,32 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
                 <td>{ni_state}</td>
                 <td>{ni_assignee}</td>
             </tr>"""
-        # 더보기 버튼 (5건 초과 시, 협의 종료 뷰 링크)
-        view_urls = data.get("view_urls", {})
-        neg_view_url = view_urls.get("negotiated", "")
-        if not neg_view_url:
-            qa_card_data = data.get("qa_card", {})
-            neg_view_url = qa_card_data.get("url", "#")
-        remaining = len(negotiated_closed) - 5
-        more_btn = f'<div style="margin-top:12px"><a href="{neg_view_url}" target="_blank" style="display:inline-block;padding:6px 16px;background:#4338ca;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none">{remaining}건 이슈 더보기 →</a></div>' if remaining > 0 else ""
+            else:
+                neg_extra += f"""
+            <tr>
+                <td><a href="{ni_url}" target="_blank" class="issue-link">{ni_id}</a></td>
+                <td>{ni_title[:60]}{'...' if len(ni_title) > 60 else ''}</td>
+                <td><span class="badge {ni_badge_cls}">{ni_priority}</span></td>
+                <td>{ni_state}</td>
+                <td>{ni_assignee}</td>
+            </tr>"""
+        remaining = len(sorted_neg) - 5
+        neg_colgroup = '<colgroup><col style="width:10%"><col style="width:40%"><col style="width:12%"><col style="width:18%"><col style="width:20%"></colgroup>'
+        more_btn = f'<details class="neg-details"><summary style="display:inline-block;padding:6px 16px;background:#4338ca;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;list-style:none"><span class="neg-more">{remaining}건 이슈 더보기 ▼</span><span class="neg-less">{remaining}건 이슈 접기 ▲</span></summary><div class="neg-content"><div class="table-wrap"><table>{neg_colgroup}<tbody>{neg_extra}</tbody></table></div></div></details>' if remaining > 0 else ""
         negotiated_html = f"""
         <div class="section">
             <div class="section-title">협의 종료 이슈 ({len(negotiated_closed)}건)</div>
             <div class="card">
-                <p class="text-muted" style="font-size:13px;margin-bottom:12px">수정 없이 협의로 종료된 이슈입니다. 이슈 추이 차트에서는 해결로 집계됩니다. (최대 5개 노출)</p>
+                <p class="text-muted" style="font-size:13px;margin-bottom:12px">수정 없이 협의로 종료된 이슈입니다. 이슈 추이 차트에서는 해결로 집계됩니다.</p>
                 <div class="table-wrap">
-                    <table>
+                    <table>{neg_colgroup}
                         <thead>
                             <tr>
-                                <th style="width:90px">ID</th>
+                                <th>ID</th>
                                 <th>제목</th>
-                                <th style="width:100px">우선순위</th>
-                                <th style="width:120px">종료 사유</th>
-                                <th style="width:100px">담당자</th>
+                                <th>우선순위</th>
+                                <th>종료 사유</th>
+                                <th>담당자</th>
                             </tr>
                         </thead>
                         <tbody>{neg_rows}</tbody>
@@ -512,6 +517,13 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   .issue-link:hover {{ text-decoration: underline; }}
 
   .updated-at {{ text-align: right; font-size: 11px; color: #9ca3af; margin-top: 8px; }}
+  .neg-details {{ display: flex; flex-direction: column; }}
+  .neg-details > summary {{ order: 2; margin-top: 8px; width: fit-content; }}
+  .neg-details > .neg-content {{ order: 1; }}
+  .neg-details .neg-more {{ display: inline; }}
+  .neg-details .neg-less {{ display: none; }}
+  .neg-details[open] .neg-more {{ display: none; }}
+  .neg-details[open] .neg-less {{ display: inline; }}
 </style>
 </head>
 <body>

@@ -36,6 +36,7 @@ def upload_dashboard(file_path: str, filename: str = None) -> Optional[str]:
             files={
                 "content": (None, content_b64),
                 "filename": (None, filename),
+                "visibility": (None, "shared"),
             },
             timeout=30,
         )
