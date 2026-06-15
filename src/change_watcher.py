@@ -628,37 +628,19 @@ MAX_DETAIL_LEN = 40
 
 
 def _truncate(text: str, max_len: int = MAX_DETAIL_LEN) -> str:
-    """텍스트를 max_len자로 자르고 초과 시 ... 추가."""
+    """텍스트를 max_len자로 자르되, 앞뒤를 살리고 가운데를 생략."""
     if len(text) <= max_len:
         return text
-    return text[:max_len] + "..."
+    # 앞쪽 60%, 뒤쪽 40% 비율로 분배
+    ellipsis = "...(생략)..."
+    keep_front = int(max_len * 0.6)
+    keep_back = max_len - keep_front
+    return text[:keep_front] + ellipsis + text[-keep_back:]
 
 
 def _truncate_diff_pair(old: str, new: str, max_len: int = MAX_DETAIL_LEN) -> tuple[str, str]:
-    """변경 전후 텍스트에서 실제 바뀐 부분 주변을 표시."""
-    from difflib import SequenceMatcher
-    if len(old) <= max_len and len(new) <= max_len:
-        return old, new
-
-    # 첫 번째 다른 위치 찾기
-    sm = SequenceMatcher(None, old, new)
-    first_diff_pos = None
-    for op, i1, i2, j1, j2 in sm.get_opcodes():
-        if op != "equal":
-            first_diff_pos = min(i1, j1)
-            break
-
-    if first_diff_pos is None:
-        return _truncate(old, max_len), _truncate(new, max_len)
-
-    # 변경 위치 주변으로 잘라서 표시
-    start = max(0, first_diff_pos - 10)
-    prefix = "..." if start > 0 else ""
-    old_slice = old[start:start + max_len]
-    new_slice = new[start:start + max_len]
-    old_suffix = "..." if start + max_len < len(old) else ""
-    new_suffix = "..." if start + max_len < len(new) else ""
-    return f"{prefix}{old_slice}{old_suffix}", f"{prefix}{new_slice}{new_suffix}"
+    """변경 전후 텍스트를 가운데 생략으로 표시."""
+    return _truncate(old, max_len), _truncate(new, max_len)
 
 
 def _format_detail(c: dict) -> str:
@@ -669,8 +651,7 @@ def _format_detail(c: dict) -> str:
 
     if change_type == "modified":
         label = c.get("label", "")
-        old = _truncate(c.get("old", ""))
-        new = _truncate(c.get("new", ""))
+        old, new = _truncate_diff_pair(c.get("old", ""), c.get("new", ""))
         header = label if label else f"{table_tag}수정"
         return f"{header}\n>             변경 전: _{old}_\n>             변경 후: *{new}*"
     else:
