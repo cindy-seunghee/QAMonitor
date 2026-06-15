@@ -796,13 +796,15 @@ class SlackNotifier:
             diff_text = prd_change["diff_text"]
             prd_url = prd_change.get("card_url", "")
             prd_link = f" (<{prd_url}|PRD 링크>)" if prd_url else ""
+            version_info = prd_change.get("version_info", "")
+            version_tag = f" ({version_info})" if version_info else ""
             if len(diff_text) > 2900:
                 diff_text = diff_text[:2900] + "\n... (생략)"
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*PRD 변경*{prd_link}\n{diff_text}",
+                    "text": f"*PRD 변경*{version_tag}{prd_link}\n{diff_text}",
                 },
             })
 

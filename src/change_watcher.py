@@ -57,7 +57,7 @@ def _find_prd_source(qa_card: dict) -> dict | None:
 def _fetch_confluence_page(page_id: str) -> dict | None:
     """Confluence REST API로 페이지 제목 + 본문을 조회.
 
-    Returns: {"title": str, "body": str} | None
+    Returns: {"title": str, "body": str, "version": int} | None
     """
     email = os.environ.get("CONFLUENCE_EMAIL", "")
     token = os.environ.get("CONFLUENCE_TOKEN", "")
@@ -76,10 +76,11 @@ def _fetch_confluence_page(page_id: str) -> dict | None:
     data = resp.json()
     title = data.get("title", "")
     body_html = data.get("body", {}).get("storage", {}).get("value", "")
+    version = data.get("version", {}).get("number", 0)
 
     # HTML → 텍스트 변환 (간이 파싱)
     body_text = _html_to_text(body_html)
-    return {"title": title, "body": body_text, "html": body_html}
+    return {"title": title, "body": body_text, "html": body_html, "version": version}
 
 
 def _html_to_text(html: str) -> str:
@@ -359,19 +360,30 @@ def check_description_change(qa_card: dict) -> dict | None:
         description = page["body"]
         prd_html = page.get("html", "")
         prd_title = page["title"]
+        current_version = page.get("version", 0)
         prd_id = f"Confluence #{prd_source['page_id']}"
         prd_url = prd_source["url"]
 
         # Confluence → 트리 기반 비교 (HTML 스냅샷 사용)
         snap_html_path = SNAPSHOT_DIR / f"prd_{card_id}.html"
+        snap_ver_path = SNAPSHOT_DIR / f"prd_{card_id}.version"
         SNAPSHOT_DIR.mkdir(exist_ok=True)
+
+        # 이전 버전 번호 읽기
+        old_version = 0
+        if snap_ver_path.exists():
+            try:
+                old_version = int(snap_ver_path.read_text(encoding="utf-8").strip())
+            except ValueError:
+                old_version = 0
 
         if not snap_html_path.exists():
             snap_html_path.write_text(prd_html, encoding="utf-8")
+            snap_ver_path.write_text(str(current_version), encoding="utf-8")
             # 텍스트 스냅샷도 저장 (하위 호환)
             snap_path = _snapshot_path_prd(card_id)
             snap_path.write_text(description, encoding="utf-8")
-            print(f"      PRD 초기 스냅샷 저장 (트리): {prd_id}")
+            print(f"      PRD 초기 스냅샷 저장 (트리, v{current_version}): {prd_id}")
             return None
 
         old_html = snap_html_path.read_text(encoding="utf-8")
@@ -385,14 +397,21 @@ def check_description_change(qa_card: dict) -> dict | None:
 
         if not changes:
             snap_html_path.write_text(prd_html, encoding="utf-8")
+            snap_ver_path.write_text(str(current_version), encoding="utf-8")
             snap_path = _snapshot_path_prd(card_id)
             snap_path.write_text(description, encoding="utf-8")
             return None
 
         snap_html_path.write_text(prd_html, encoding="utf-8")
+        snap_ver_path.write_text(str(current_version), encoding="utf-8")
         snap_path = _snapshot_path_prd(card_id)
         snap_path.write_text(description, encoding="utf-8")
         diff_text = _format_tree_changes(changes)
+
+        # 버전 비교 정보 구성
+        version_info = None
+        if old_version and current_version:
+            version_info = f"v{old_version} → v{current_version}"
 
         return {
             "card_id": card_id,
@@ -400,6 +419,7 @@ def check_description_change(qa_card: dict) -> dict | None:
             "title": prd_title,
             "diff_text": diff_text,
             "card_url": prd_url,
+            "version_info": version_info,
         }
 
     else:
