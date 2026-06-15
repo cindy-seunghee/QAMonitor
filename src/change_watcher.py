@@ -208,13 +208,10 @@ def _walk_element(el, heading: str, nodes: list):
             row_name = cells[0].get_text(strip=True)[:30] if cells else ""
             for j, cell in enumerate(cells):
                 col_name = col_names[j] if j < len(col_names) else f"열{j}"
-                # 이미지 처리
-                text = _cell_text_with_images(cell)
-                if text.strip():
-                    nodes.append({
-                        "path": f"[표] {row_name} > {col_name}",
-                        "text": text.strip(),
-                    })
+                base_path = f"[표] {row_name} > {col_name}"
+                # 셀 내부를 리스트 항목 단위로 분해
+                cell_nodes = _extract_cell_nodes(cell, base_path)
+                nodes.extend(cell_nodes)
         return
 
     # 리스트 아이템
@@ -251,6 +248,92 @@ def _cell_text_with_images(el) -> str:
     return " ".join("".join(parts).split())
 
 
+def _extract_cell_nodes(cell, base_path: str) -> list[dict]:
+    """테이블 셀 내부를 리스트 항목 단위로 분해. 리스트가 없으면 셀 전체를 하나의 노드로."""
+    from bs4 import Tag
+
+    # 셀에 리스트가 있는지 확인
+    has_list = cell.find(["ul", "ol"])
+    if not has_list:
+        text = _cell_text_with_images(cell)
+        if text.strip():
+            return [{"path": base_path, "text": text.strip()}]
+        return []
+
+    nodes = []
+    current_section = ""
+
+    for child in cell.children:
+        if not isinstance(child, Tag):
+            continue
+        if child.name in ("p", "h3", "h4", "h5"):
+            # 섹션 헤더 (셀 내 <p><strong>유형 1. OX 퀴즈</strong></p> 등)
+            section_text = child.get_text(strip=True)
+            if section_text:
+                current_section = section_text
+        elif child.name in ("ul", "ol"):
+            section_path = f"{base_path} > {current_section}" if current_section else base_path
+            _walk_list_items(child, section_path, nodes)
+
+    # 노드가 없으면 셀 전체를 하나로 (폴백)
+    if not nodes:
+        text = _cell_text_with_images(cell)
+        if text.strip():
+            return [{"path": base_path, "text": text.strip()}]
+    return nodes
+
+
+def _walk_list_items(list_el, parent_path: str, nodes: list):
+    """리스트 요소를 재귀적으로 순회하여 개별 노드 추출."""
+    from bs4 import Tag
+
+    for li in list_el.find_all("li", recursive=False):
+        direct_text = _get_li_direct_text(li)
+        sub_lists = li.find_all(["ul", "ol"], recursive=False)
+
+        if sub_lists:
+            # 하위 리스트가 있으면 현재 항목은 경로 segment
+            item_name = _path_name(direct_text)
+            item_path = f"{parent_path} > {item_name}" if parent_path and item_name else parent_path or item_name
+
+            # 현재 항목의 직접 텍스트도 노드로 추가
+            if direct_text.strip():
+                nodes.append({"path": item_path, "text": direct_text.strip()})
+
+            # 하위 리스트 재귀
+            for sub in sub_lists:
+                _walk_list_items(sub, item_path, nodes)
+        else:
+            # 말단 항목 → 전체 텍스트를 노드로
+            full_text = _cell_text_with_images(li)
+            if full_text.strip():
+                nodes.append({"path": parent_path, "text": full_text.strip()})
+
+
+def _get_li_direct_text(li) -> str:
+    """<li> 요소의 직접 텍스트만 추출 (중첩 리스트/figure 제외)."""
+    from bs4 import NavigableString, Tag
+    parts = []
+    for child in li.children:
+        if isinstance(child, NavigableString):
+            parts.append(str(child))
+        elif isinstance(child, Tag) and child.name not in ("ul", "ol", "figure"):
+            parts.append(child.get_text())
+    return " ".join("".join(parts).split())
+
+
+def _path_name(text: str, max_len: int = 25) -> str:
+    """텍스트에서 경로용 이름을 추출 (콜론 앞 또는 첫 max_len자)."""
+    if not text:
+        return ""
+    for sep in (":", "—", "："):
+        if sep in text:
+            name = text.split(sep)[0].strip()
+            if name:
+                return name[:max_len]
+    return text[:max_len].strip()
+
+
 def _compare_node_lists(old_nodes: list[dict], new_nodes: list[dict]) -> list[dict]:
     """두 노드 리스트를 경로+텍스트 기준으로 비교.
     Returns: [{"type": "modified"|"added"|"removed", "path": str, "old": str, "new": str}, ...]
@@ -271,25 +354,46 @@ def _compare_node_lists(old_nodes: list[dict], new_nodes: list[dict]) -> list[di
         old_texts = old_by_path.get(path, [])
         new_texts = new_by_path.get(path, [])
 
-        # 같은 경로의 텍스트들을 순서대로 비교
-        max_len = max(len(old_texts), len(new_texts))
-        for i in range(max_len):
-            old_t = old_texts[i] if i < len(old_texts) else None
-            new_t = new_texts[i] if i < len(new_texts) else None
-
-            if old_t and new_t:
-                if old_t != new_t:
-                    changes.append({"type": "modified", "path": path, "old": old_t, "new": new_t})
-            elif old_t and not new_t:
-                changes.append({"type": "removed", "path": path, "old": old_t, "new": ""})
-            elif new_t and not old_t:
-                changes.append({"type": "added", "path": path, "old": "", "new": new_t})
+        # SequenceMatcher로 최적 매칭 (삽입/삭제 시 오정렬 방지)
+        from difflib import SequenceMatcher
+        sm = SequenceMatcher(None, old_texts, new_texts)
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            if op == "equal":
+                continue
+            elif op == "replace":
+                # 1:1 매칭되는 부분은 수정, 나머지는 추가/삭제
+                pairs = min(i2 - i1, j2 - j1)
+                for k in range(pairs):
+                    changes.append({"type": "modified", "path": path, "old": old_texts[i1 + k], "new": new_texts[j1 + k]})
+                for i in range(i1 + pairs, i2):
+                    changes.append({"type": "removed", "path": path, "old": old_texts[i], "new": ""})
+                for j in range(j1 + pairs, j2):
+                    changes.append({"type": "added", "path": path, "old": "", "new": new_texts[j]})
+            elif op == "delete":
+                for i in range(i1, i2):
+                    changes.append({"type": "removed", "path": path, "old": old_texts[i], "new": ""})
+            elif op == "insert":
+                for j in range(j1, j2):
+                    changes.append({"type": "added", "path": path, "old": "", "new": new_texts[j]})
 
     return changes
 
 
+MAX_SUMMARY_ITEMS = 5
+
+
 def _format_tree_changes(changes: list[dict]) -> str:
-    """트리 비교 결과를 사람이 읽기 쉬운 형태로 포맷팅."""
+    """트리 비교 결과를 전체 포맷팅 (스레드 상세용)."""
+    return _format_changes_list(changes, max_items=None)
+
+
+def _format_tree_changes_summary(changes: list[dict]) -> str:
+    """트리 비교 결과를 요약 포맷팅 (메인 메시지용, 각 유형별 MAX_SUMMARY_ITEMS건)."""
+    return _format_changes_list(changes, max_items=MAX_SUMMARY_ITEMS)
+
+
+def _format_changes_list(changes: list[dict], max_items: int | None = None) -> str:
+    """트리 비교 결과를 mrkdwn 텍스트로 포맷팅 (메인 메시지용)."""
     modified = [c for c in changes if c["type"] == "modified"]
     added = [c for c in changes if c["type"] == "added"]
     removed = [c for c in changes if c["type"] == "removed"]
@@ -297,26 +401,146 @@ def _format_tree_changes(changes: list[dict]) -> str:
     lines = []
     if modified:
         lines.append(f"\u2022 *수정* ({len(modified)}건)")
-        for c in modified:
+        show = modified[:max_items] if max_items else modified
+        prev_path = None
+        for c in show:
             path = c["path"] or "(본문)"
             old, new = _truncate_diff_pair(c["old"], c["new"])
-            lines.append(f"  \u2022 {path}")
+            if path != prev_path:
+                lines.append(f"  \u2022 {path}")
+                prev_path = path
             lines.append(f">       변경 전: _{old}_")
             lines.append(f">       변경 후: *{new}*")
+        if max_items and len(modified) > max_items:
+            lines.append(f"  _... 외 {len(modified) - max_items}건_")
 
     if added:
         lines.append(f"\u2022 *추가* ({len(added)}건)")
-        for c in added:
-            path = c["path"] or "(본문)"
-            lines.append(f"  \u2022 {path}: {_truncate(c['new'])}")
+        show = added[:max_items] if max_items else added
+        lines.extend(_format_grouped_items(show, "added"))
+        if max_items and len(added) > max_items:
+            lines.append(f"  _... 외 {len(added) - max_items}건_")
 
     if removed:
         lines.append(f"\u2022 *삭제* ({len(removed)}건)")
-        for c in removed:
-            path = c["path"] or "(본문)"
-            lines.append(f"  \u2022 {path}: ~{_truncate(c['old'])}~")
+        show = removed[:max_items] if max_items else removed
+        lines.extend(_format_grouped_items(show, "removed"))
+        if max_items and len(removed) > max_items:
+            lines.append(f"  _... 외 {len(removed) - max_items}건_")
+
+    if max_items:
+        total = len(modified) + len(added) + len(removed)
+        shown = min(len(modified), max_items) + min(len(added), max_items) + min(len(removed), max_items)
+        if shown < total:
+            lines.append(f"_상세 내용은 스레드를 확인해주세요._")
 
     return "\n".join(lines)
+
+
+def _format_grouped_items(items: list[dict], change_type: str) -> list[str]:
+    """같은 경로의 항목들을 그룹핑하여 경로 1회만 표시, 하위에 내용 나열."""
+    lines = []
+    prev_path = None
+    for c in items:
+        path = c["path"] or "(본문)"
+        text = c.get("new", "") if change_type == "added" else c.get("old", "")
+        if path != prev_path:
+            lines.append(f"  \u2022 {path}")
+            prev_path = path
+        if change_type == "removed":
+            lines.append(f"     \u25E6 ~{_truncate(text)}~")
+        else:
+            lines.append(f"     \u25E6 {_truncate(text)}")
+    return lines
+
+
+def format_changes_rich_text(changes: list[dict]) -> list[dict]:
+    """트리 비교 결과를 Slack rich_text 블록 리스트로 변환 (스레드 상세용)."""
+    modified = [c for c in changes if c["type"] == "modified"]
+    added = [c for c in changes if c["type"] == "added"]
+    removed = [c for c in changes if c["type"] == "removed"]
+
+    elements = []
+
+    for label, items, style_fn in [
+        ("수정", modified, None),
+        ("추가", added, None),
+        ("삭제", removed, {"strike": True}),
+    ]:
+        if not items:
+            continue
+        # 섹션 헤더
+        elements.append({
+            "type": "rich_text_section",
+            "elements": [{"type": "text", "text": f"{label} ({len(items)}건)", "style": {"bold": True}}],
+        })
+        # 경로별 그룹핑
+        grouped = _group_by_path(items)
+        for path, group_items in grouped:
+            # 경로 (indent 0)
+            elements.append({
+                "type": "rich_text_list",
+                "style": "bullet",
+                "indent": 0,
+                "elements": [{
+                    "type": "rich_text_section",
+                    "elements": [{"type": "text", "text": path, "style": {"bold": True}}],
+                }],
+            })
+            # 하위 항목 (indent 1)
+            sub_elements = []
+            for c in group_items:
+                if label == "수정":
+                    old, new = _truncate_diff_pair(c["old"], c["new"])
+                    sub_elements.append({
+                        "type": "rich_text_section",
+                        "elements": [
+                            {"type": "text", "text": "변경 전: "},
+                            {"type": "text", "text": old, "style": {"italic": True}},
+                            {"type": "text", "text": "\n변경 후: "},
+                            {"type": "text", "text": new, "style": {"bold": True}},
+                        ],
+                    })
+                elif label == "삭제":
+                    sub_elements.append({
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": _truncate(c["old"]), "style": {"strike": True}}],
+                    })
+                else:
+                    sub_elements.append({
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": _truncate(c["new"])}],
+                    })
+            if sub_elements:
+                elements.append({
+                    "type": "rich_text_list",
+                    "style": "bullet",
+                    "indent": 1,
+                    "elements": sub_elements,
+                })
+
+    if not elements:
+        return []
+    return [{"type": "rich_text", "elements": elements}]
+
+
+def _group_by_path(items: list[dict]) -> list[tuple[str, list[dict]]]:
+    """아이템을 경로별로 그룹핑 (순서 유지)."""
+    groups = []
+    prev_path = None
+    current_group = []
+    for c in items:
+        path = c.get("path") or "(본문)"
+        if path != prev_path:
+            if current_group:
+                groups.append((prev_path, current_group))
+            current_group = [c]
+            prev_path = path
+        else:
+            current_group.append(c)
+    if current_group:
+        groups.append((prev_path, current_group))
+    return groups
 
 
 # ── PRD Description 변경 감지 ─────────────────────────────────────────
@@ -407,6 +631,7 @@ def check_description_change(qa_card: dict) -> dict | None:
         snap_path = _snapshot_path_prd(card_id)
         snap_path.write_text(description, encoding="utf-8")
         diff_text = _format_tree_changes(changes)
+        diff_summary = _format_tree_changes_summary(changes)
 
         # 버전 비교 정보 구성
         version_info = None
@@ -418,6 +643,8 @@ def check_description_change(qa_card: dict) -> dict | None:
             "prd_id": prd_id,
             "title": prd_title,
             "diff_text": diff_text,
+            "diff_summary": diff_summary,
+            "changes": changes,
             "card_url": prd_url,
             "version_info": version_info,
         }
@@ -659,8 +886,32 @@ def _truncate(text: str, max_len: int = MAX_DETAIL_LEN) -> str:
 
 
 def _truncate_diff_pair(old: str, new: str, max_len: int = MAX_DETAIL_LEN) -> tuple[str, str]:
-    """변경 전후 텍스트를 가운데 생략으로 표시."""
-    return _truncate(old, max_len), _truncate(new, max_len)
+    """변경 전후 텍스트에서 실제 바뀐 부분 주변을 표시."""
+    if len(old) <= max_len and len(new) <= max_len:
+        return old, new
+
+    from difflib import SequenceMatcher
+    sm = SequenceMatcher(None, old, new)
+    first_diff_pos = None
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op != "equal":
+            first_diff_pos = min(i1, j1)
+            break
+
+    if first_diff_pos is None:
+        return _truncate(old, max_len), _truncate(new, max_len)
+
+    # 변경 위치를 중심으로 앞뒤 컨텍스트 포함
+    context_before = 10
+    start = max(0, first_diff_pos - context_before)
+
+    prefix = "..." if start > 0 else ""
+    old_slice = old[start:start + max_len]
+    new_slice = new[start:start + max_len]
+    old_suffix = "..." if start + max_len < len(old) else ""
+    new_suffix = "..." if start + max_len < len(new) else ""
+
+    return f"{prefix}{old_slice}{old_suffix}", f"{prefix}{new_slice}{new_suffix}"
 
 
 def _format_detail(c: dict) -> str:

@@ -791,20 +791,28 @@ class SlackNotifier:
             },
         })
 
-        # PRD 변경
+        # PRD 변경 — 메인 메시지에는 건수 요약만, 상세는 스레드 코멘트로
         if prd_change:
-            diff_text = prd_change["diff_text"]
+            diff_text = prd_change.get("diff_text", "")
             prd_url = prd_change.get("card_url", "")
             prd_link = f" (<{prd_url}|PRD 링크>)" if prd_url else ""
             version_info = prd_change.get("version_info", "")
             version_tag = f" ({version_info})" if version_info else ""
-            if len(diff_text) > 2900:
-                diff_text = diff_text[:2900] + "\n... (생략)"
+
+            # 건수 집계
+            count_lines = []
+            for line in diff_text.split("\n"):
+                if line.startswith("\u2022 *"):  # • *수정* (N건) 등
+                    count_lines.append(line)
+            counts = "\n".join(count_lines) if count_lines else "변경 감지됨"
+
+            summary = f"*PRD 변경*{version_tag}{prd_link}\n{counts}"
+            summary += "\n_상세 내용은 스레드를 확인해주세요._"
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*PRD 변경*{version_tag}{prd_link}\n{diff_text}",
+                    "text": summary,
                 },
             })
 
@@ -894,7 +902,7 @@ class SlackNotifier:
 
             card_ids = ", ".join(r["card_id"] for r in card_results)
             try:
-                self.client.chat_postMessage(
+                resp = self.client.chat_postMessage(
                     channel=slack_id,
                     blocks=blocks,
                     text=f"PRD/디자인 변경 알림: {card_ids}",
@@ -902,6 +910,9 @@ class SlackNotifier:
                     unfurl_media=False,
                 )
                 print(f"  \u2713 변경 알림 DM 전송 완료: {slack_id} ({len(card_results)}건 통합)")
+                # 상세 내용이 요약과 다르면 스레드로 전체 발송
+                main_ts = resp["ts"]
+                self._post_prd_detail_thread(slack_id, main_ts, card_results)
             except SlackApiError as e:
                 print(f"  \u2717 변경 알림 DM 전송 실패: {e.response['error']}")
         else:
@@ -911,7 +922,7 @@ class SlackNotifier:
                 blocks.extend(card_blocks)
                 blocks.extend(footer_blocks)
                 try:
-                    self.client.chat_postMessage(
+                    resp = self.client.chat_postMessage(
                         channel=slack_id,
                         blocks=blocks,
                         text=f"PRD/디자인 변경 알림: {result['card_id']}",
@@ -919,8 +930,77 @@ class SlackNotifier:
                         unfurl_media=False,
                     )
                     print(f"  \u2713 변경 알림 DM 전송 완료: {slack_id} ({result['card_id']})")
+                    main_ts = resp["ts"]
+                    self._post_prd_detail_thread(slack_id, main_ts, [result])
                 except SlackApiError as e:
                     print(f"  \u2717 변경 알림 DM 전송 실패: {e.response['error']}")
+
+    def _post_prd_detail_thread(self, channel: str, thread_ts: str, card_results: list[dict]) -> None:
+        """메인 메시지의 스레드에 PRD 변경 상세를 rich_text 블록으로 발송."""
+        from src.change_watcher import format_changes_rich_text
+
+        for result in card_results:
+            prd_change = result.get("prd_change")
+            if not prd_change:
+                continue
+
+            # changes 리스트가 없으면 diff_text 폴백
+            changes = prd_change.get("changes")
+            card_id = result.get("card_id", "")
+
+            if changes:
+                # rich_text 블록으로 변환
+                blocks = format_changes_rich_text(changes)
+                if not blocks:
+                    continue
+                # rich_text 블록은 크기가 클 수 있으므로 50블록 제한 내에서 발송
+                try:
+                    self.client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        blocks=blocks,
+                        text=f"PRD 변경 상세: {card_id}",
+                        unfurl_links=False,
+                        unfurl_media=False,
+                    )
+                except SlackApiError as e:
+                    # rich_text 실패 시 mrkdwn 폴백
+                    print(f"  \u26A0 rich_text 전송 실패 ({e.response['error']}), mrkdwn 폴백")
+                    self._post_prd_detail_thread_mrkdwn(channel, thread_ts, prd_change, card_id)
+            else:
+                # changes 없으면 diff_text로 mrkdwn 폴백
+                self._post_prd_detail_thread_mrkdwn(channel, thread_ts, prd_change, card_id)
+
+    def _post_prd_detail_thread_mrkdwn(self, channel: str, thread_ts: str, prd_change: dict, card_id: str) -> None:
+        """mrkdwn 폴백: diff_text를 분할하여 스레드 발송."""
+        diff_text = prd_change.get("diff_text", "")
+        if not diff_text:
+            return
+        chunks = []
+        current = ""
+        for line in diff_text.split("\n"):
+            if len(current) + len(line) + 1 > 2800 and current:
+                chunks.append(current)
+                current = line
+            else:
+                current = current + "\n" + line if current else line
+        if current:
+            chunks.append(current)
+        for chunk in chunks:
+            if len(chunk) > 2950:
+                chunk = chunk[:2950] + "\n... (생략)"
+            try:
+                self.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": chunk}}],
+                    text=f"PRD 변경 상세: {card_id}",
+                    unfurl_links=False,
+                    unfurl_media=False,
+                )
+            except SlackApiError as e:
+                print(f"  \u2717 PRD 상세 스레드 전송 실패: {e.response['error']}")
+                break
 
     # ── PRD/Figma 링크 누락 안내 ──────────────────────────────────────────
 
