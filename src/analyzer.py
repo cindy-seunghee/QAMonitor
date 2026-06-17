@@ -420,7 +420,12 @@ def _critical_issues(open_bugs: list[dict]) -> list[dict]:
         b for b in open_bugs
         if b.get("priorityLabel") in ("Urgent", "High")
     ]
-    return sorted(critical, key=lambda i: PRIORITY_ORDER.get(i.get("priorityLabel", "No priority"), 99))
+    status_order = {"Backlog": 0, "Todo": 1, "In Progress": 2, "In Review": 3}
+    return sorted(critical, key=lambda i: (
+        PRIORITY_ORDER.get(i.get("priorityLabel", "No priority"), 99),
+        status_order.get(i.get("state", {}).get("name", ""), 99),
+        i.get("identifier", ""),
+    ))
 
 
 def _generate_recommendations(
