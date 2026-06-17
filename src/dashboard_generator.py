@@ -72,6 +72,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
     platform_breakdown = data.get("platform_breakdown", {})
     critical_issues = data.get("critical_issues", [])
     negotiated_closed = data.get("negotiated_closed", [])
+    remaining_cases = data.get("remaining_cases")
 
     # 진행률이 "?"인 경우 표시용 값 분리
     pct_raw = progress.get("pct", 0)
@@ -435,6 +436,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
   .metric-red {{ color: #ef4444; }}
   .metric-orange {{ color: #f97316; }}
   .metric-green {{ color: #22c55e; }}
+  .metric-gray {{ color: #9ca3af; }}
   .metric-blue {{ color: #3b82f6; }}
   .metric-purple {{ color: #8b5cf6; }}
 
@@ -567,7 +569,7 @@ def _render_html(data: dict, checklist_items: list[str] = None) -> str:
       </div>
       <div class="card metric-card">
         <div class="metric-label">테스트 미완료</div>
-        <div class="metric-value metric-orange">{progress.get('not_started', 0) + progress.get('in_progress', 0)}</div>
+        <div class="metric-value {'metric-orange' if remaining_cases and remaining_cases > 0 else 'metric-green' if remaining_cases is not None else 'metric-gray'}">{remaining_cases if remaining_cases is not None else '?'}</div>
         <div class="metric-sub">잔여 케이스</div>
       </div>
     </div>

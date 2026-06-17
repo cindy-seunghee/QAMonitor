@@ -153,6 +153,8 @@ def _read_step_counts(worksheet, test_phase: str) -> dict | None:
         result = {}
 
         keywords = [
+            ("테스트 STEP 수", "total_steps"),
+            ("실행한 STEP 수", "executed_steps"),
             ("테스트 성공 STEP", "pass"),
             ("테스트 실패 STEP", "fail"),
             ("Block 수", "block"),
@@ -184,6 +186,19 @@ def _read_step_counts(worksheet, test_phase: str) -> dict | None:
         return result if result else None
     except Exception:
         return None
+
+
+def _calc_remaining_from_step_counts(step_counts: dict | None) -> int | None:
+    """표준 TC의 step_counts에서 잔여 케이스 수를 계산한다.
+    잔여 = 테스트 STEP 수 - 실행한 STEP 수
+    """
+    if not step_counts:
+        return None
+    total = step_counts.get("total_steps")
+    executed = step_counts.get("executed_steps")
+    if total is not None and executed is not None:
+        return max(total - executed, 0)
+    return None
 
 
 def _read_block_details(worksheet, test_phase: str) -> list[dict] | None:
@@ -286,20 +301,35 @@ def _find_progress_by_stats_table(
     header_row = header_cell.row + 1
     row_vals = worksheet.row_values(header_row)
 
-    progress_col = None
+    # 헤더행에서 필요한 열 위치 찾기
+    col_map = {}
+    target_cols = {"진행률", "총 케이스 수", "PASS", "FAIL"}
     for idx, val in enumerate(row_vals, start=1):
-        if val and val.strip() == "진행률":
-            progress_col = idx
-            break
-    if not progress_col:
+        stripped = (val or "").strip()
+        if stripped in target_cols:
+            col_map[stripped] = idx
+
+    if "진행률" not in col_map:
         return None
 
     # 헤더행 아래로 내려가며 '전체' 행 찾기 (최대 20행)
     for r in range(header_row + 1, header_row + 21):
         cell_val = worksheet.cell(r, header_cell.col).value
         if cell_val and cell_val.strip() == "전체":
-            raw = worksheet.cell(r, progress_col).value
-            return _parse_progress_value(raw, url, f"{section_header} > 전체 > 진행률")
+            raw = worksheet.cell(r, col_map["진행률"]).value
+            result = _parse_progress_value(raw, url, f"{section_header} > 전체 > 진행률")
+
+            # 잔여 케이스 계산: 총 케이스 수 - PASS - FAIL
+            if all(k in col_map for k in ("총 케이스 수", "PASS", "FAIL")):
+                try:
+                    total_cases = int(float(worksheet.cell(r, col_map["총 케이스 수"]).value or "0"))
+                    pass_cases = int(float(worksheet.cell(r, col_map["PASS"]).value or "0"))
+                    fail_cases = int(float(worksheet.cell(r, col_map["FAIL"]).value or "0"))
+                    result["remaining_cases"] = total_cases - pass_cases - fail_cases
+                except (ValueError, TypeError):
+                    pass
+
+            return result
 
     return None
 
@@ -352,6 +382,7 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "") -> dict:
                             result = _parse_progress_value(raw, url, f"현재 진행률 col+{offset} (리그레션)")
                             result["step_counts"] = _read_step_counts(worksheet, test_phase)
                             result["block_details"] = _read_block_details(worksheet, test_phase)
+                            result["remaining_cases"] = _calc_remaining_from_step_counts(result.get("step_counts"))
                             return result
                     return {"value": None, "error": "리그레션 진행률 셀을 찾을 수 없음", "sheet_url": url}
                 else:
@@ -360,6 +391,7 @@ def fetch_test_progress(qa_card: dict, test_phase: str = "") -> dict:
                     result = _parse_progress_value(raw, url, "현재 진행률 우측 (통합)")
                     result["step_counts"] = _read_step_counts(worksheet, test_phase)
                     result["block_details"] = _read_block_details(worksheet, test_phase)
+                    result["remaining_cases"] = _calc_remaining_from_step_counts(result.get("step_counts"))
                     return result
             return {"value": None, "error": "'현재 진행률' 셀을 찾을 수 없음", "sheet_url": url}
         else:
@@ -792,6 +824,12 @@ def prepare_qa_card_data(qa_card: dict, config: dict) -> dict:
         if "na" in step_counts:
             parts.append(f"N/A: {step_counts['na']}건")
         print(f"      테스트 {' | '.join(parts)}")
+
+    # 잔여 케이스 수
+    remaining_cases = sheet_result.get("remaining_cases")
+    if remaining_cases is not None:
+        data["remaining_cases"] = remaining_cases
+        print(f"      잔여 케이스: {remaining_cases}건")
 
     block_details = sheet_result.get("block_details")
     if block_details:
