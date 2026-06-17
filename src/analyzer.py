@@ -415,11 +415,12 @@ def _platform_breakdown(issues: list[dict]) -> dict[str, dict]:
 
 
 def _critical_issues(open_bugs: list[dict]) -> list[dict]:
-    """Urgent/High 미해결 버그만 추출"""
-    return [
+    """Urgent/High 미해결 버그만 추출 (우선순위 순 정렬)"""
+    critical = [
         b for b in open_bugs
         if b.get("priorityLabel") in ("Urgent", "High")
     ]
+    return sorted(critical, key=lambda i: PRIORITY_ORDER.get(i.get("priorityLabel", "No priority"), 99))
 
 
 def _generate_recommendations(
