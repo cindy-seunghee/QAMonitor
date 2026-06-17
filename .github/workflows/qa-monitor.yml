@@ -5,8 +5,8 @@ on:
   # config.yaml user_map의 send_time과 맞춰야 합니다
   # PRD/Figma 변경 감시는 change-watcher.yml로 분리
   schedule:
-    - cron: '0 3 * * 1-5'   # 평일 12:00 KST → 테스트 진행상황 (Cindy)
-    - cron: '0 5 * * 1-5'   # 평일 14:00 KST → 테스트 진행상황 (Liana)
+    - cron: '0 2 * * 1-5'   # 평일 11:00 KST → 테스트 진행상황 (Cindy)
+    - cron: '0 4 * * 1-5'   # 평일 13:00 KST → 테스트 진행상황 (Liana)
     - cron: '0 21 * * 0-4'  # 평일 06:00 KST → 운영모니터링 (Cindy+Liana)
 
   # 수동 실행 (GitHub Actions 탭에서 "Run workflow" 버튼)
@@ -62,7 +62,7 @@ jobs:
   # Cindy (스케줄 또는 수동)
   cindy:
     if: |
-      github.event.schedule == '0 3 * * 1-5' ||
+      github.event.schedule == '0 2 * * 1-5' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_card == '' && (github.event.inputs.run_for == 'Cindy' || github.event.inputs.run_for == ''))
     runs-on: ubuntu-latest
     steps:
@@ -101,7 +101,7 @@ jobs:
   # Liana (스케줄 또는 수동)
   liana:
     if: |
-      github.event.schedule == '0 5 * * 1-5' ||
+      github.event.schedule == '0 4 * * 1-5' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_card == '' && (github.event.inputs.run_for == 'Liana' || github.event.inputs.run_for == ''))
     runs-on: ubuntu-latest
     steps:
