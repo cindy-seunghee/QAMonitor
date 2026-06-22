@@ -303,56 +303,6 @@ class LinearClient:
             cursor = conn["pageInfo"]["endCursor"]
         return issues
 
-    def get_assigned_issues_without_label(
-        self, assignee_name: str, required_labels: list[str]
-    ) -> list[dict]:
-        """assignee에게 할당됐지만 required_labels 중 하나도 없는 활성 이슈 조회"""
-        query = """
-        query($assigneeName: String!, $after: String) {
-            issues(
-                first: 250
-                after: $after
-                filter: {
-                    assignee: { name: { eq: $assigneeName } }
-                    state: { type: { nin: ["completed", "canceled"] } }
-                }
-            ) {
-                pageInfo { hasNextPage endCursor }
-                nodes {
-                    id
-                    identifier
-                    title
-                    url
-                    state { name type }
-                    labels { nodes { name } }
-                    assignee { id name displayName }
-                }
-            }
-        }
-        """
-        all_issues: list[dict] = []
-        cursor = None
-        while True:
-            data = self._query(query, {"assigneeName": assignee_name, "after": cursor})
-            conn = data["issues"]
-            all_issues.extend(conn["nodes"])
-            if not conn["pageInfo"]["hasNextPage"]:
-                break
-            cursor = conn["pageInfo"]["endCursor"]
-
-        # required_labels 중 하나라도 있으면 제외, "운영검증" 라벨은 QA 라벨 누락 대상에서 제외
-        required_lower = {l.lower() for l in required_labels}
-        exclude_labels = {"운영검증"}
-        missing = []
-        for issue in all_issues:
-            label_names = {n["name"] for n in issue.get("labels", {}).get("nodes", [])}
-            if label_names & exclude_labels:
-                continue
-            label_names_lower = {n.lower() for n in label_names}
-            if not label_names_lower & required_lower:
-                missing.append(issue)
-        return missing
-
     def get_viewer(self) -> dict:
         query = """
         query {

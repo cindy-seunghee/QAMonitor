@@ -504,64 +504,6 @@ class SlackNotifier:
         bugs = data.get("open_bug_count", 0)
         return f"QA 일일 리포트 | 진행률 {pct_str} | 미해결 버그 {bugs}건"
 
-    # ── 권고사항 DM ──────────────────────────────────────────────────────
-
-    def send_recommendation_dm(
-        self, slack_id: str, qa_card_title: str, recommendations: dict
-    ) -> None:
-        """QA매니저에게 비크리티컬 처리 방안 + 권고사항을 DM으로 발송."""
-        blocks: list[dict] = [
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": f"QA 분석 권고사항 — {qa_card_title[:60]}", "emoji": True},
-            },
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "_이 메시지는 Claude Code의 데이터 기반 분석 의견입니다. QA매니저의 판단이 필요합니다._"}],
-            },
-            {"type": "divider"},
-        ]
-
-        # 비크리티컬 처리 방안
-        non_critical = recommendations.get("non_critical_plan", [])
-        if non_critical:
-            lines = "\n".join(
-                f"• *{item['category']}* ({item['count']}건)\n  {item['suggestion']}"
-                for item in non_critical
-            )
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*비크리티컬 이슈 처리 방안*\n{lines}"},
-            })
-            blocks.append({"type": "divider"})
-
-        # 배포 권고사항
-        advice = recommendations.get("advice", [])
-        if advice:
-            lines = "\n".join(f"• {a}" for a in advice)
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*배포 권고사항*\n{lines}"},
-            })
-
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "_데이터 기반 자동 분석 결과이며, 최종 판단은 QA매니저가 내려주세요._"}],
-        })
-
-        try:
-            self.client.chat_postMessage(
-                channel=slack_id,
-                blocks=blocks,
-                text=f"QA 권고사항: {qa_card_title}",
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-            print(f"  ✓ 권고사항 DM 전송 완료: {slack_id}")
-        except SlackApiError as e:
-            print(f"  ✗ 권고사항 DM 전송 실패: {e.response['error']}")
-
     # ── 에러 DM 알림 ─────────────────────────────────────────────────────
 
     def send_error_dm(self, slack_id: str, errors: list[dict]) -> None:
@@ -701,74 +643,6 @@ class SlackNotifier:
             print(f"  ✓ 운영검증 DM 전송 완료: {slack_id}")
         except SlackApiError as e:
             print(f"  ✗ 운영검증 DM 전송 실패: {e.response['error']}")
-
-    def send_missing_dates_dm(
-        self, slack_id: str, cards_info: list[dict],
-    ) -> None:
-        """테스트 기간 미기재 QA카드 안내 DM.
-        cards_info: [{"identifier": "SUP-2300", "title": "...", "url": "...", "missing": ["기능테스트", "리그레션테스트"]}, ...]
-        """
-        lines = [":bell: *테스트 기간 기재 안내*\n"]
-        lines.append("QA카드 Description에 테스트 기간이 누락되어 있습니다.\n")
-        for card in cards_info:
-            missing_str = ", ".join(card["missing"])
-            lines.append(f"• <{card['url']}|{card['identifier']} {card['title']}> — _{missing_str}_")
-        lines.append("")
-        lines.append("_`기능테스트: M/DD ~ M/DD` , `리그레션테스트: M/DD ~ M/DD` 형식으로 기재해주세요._")
-        lines.append("_리그레션테스트가 없는 경우 `리그레션테스트: 없음` 으로 기재해주세요._")
-
-        text = "\n".join(lines)
-        blocks = [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": text},
-            },
-        ]
-        try:
-            self.client.chat_postMessage(
-                channel=slack_id,
-                blocks=blocks,
-                text=f"테스트 기간 기재 안내: {len(cards_info)}건",
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-            print(f"  ✓ 테스트 기간 안내 DM 전송 완료: {slack_id}")
-        except SlackApiError as e:
-            print(f"  ✗ 테스트 기간 안내 DM 전송 실패: {e.response['error']}")
-
-    def send_missing_label_dm(
-        self, slack_id: str, issues: list[dict], label_name: str,
-        assignee_name: str = "",
-    ) -> None:
-        """QA 라벨이 누락된 할당 이슈 목록을 DM으로 보낸다."""
-        def _format_issue(issue: dict) -> str:
-            labels = [n["name"] for n in issue.get("labels", {}).get("nodes", [])]
-            label_text = f" (`{'`, `'.join(labels)}`)" if labels else ""
-            return f"\u2022 <{issue['url']}|{issue['identifier']}> : {issue['title']}{label_text}"
-
-        issue_lines = "\n".join(_format_issue(issue) for issue in issues)
-        who = assignee_name or "담당자"
-        text = (
-            f":warning: {who}에게 할당된 QA카드 중 *{label_name}* 라벨이 없는 건이 "
-            f"*{len(issues)}건* 있습니다.\n\n{issue_lines}"
-        )
-        blocks = [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": text},
-            },
-        ]
-        try:
-            self.client.chat_postMessage(
-                channel=slack_id,
-                blocks=blocks,
-                text=f"QA 라벨 누락: {len(issues)}건",
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-            print(f"  ✓ QA 라벨 누락 안내 DM 전송 완료: {slack_id}")
-        except SlackApiError as e:
-            print(f"  ✗ QA 라벨 누락 안내 DM 전송 실패: {e.response['error']}")
 
     # ── PRD/Figma 변경 알림 ──────────────────────────────────────────────
 
@@ -1002,60 +876,6 @@ class SlackNotifier:
                 print(f"  \u2717 PRD 상세 스레드 전송 실패: {e.response['error']}")
                 break
 
-    # ── PRD/Figma 링크 누락 안내 ──────────────────────────────────────────
-
-    def send_missing_links_dm(
-        self, slack_id: str, missing_cards: list[dict],
-    ) -> None:
-        """TC 작성 기간인 QA카드에 PRD/Figma 링크가 없을 때 안내 DM (복수 카드 통합).
-        missing_cards: [{"card_id": str, "title": str, "missing_prd": bool, "missing_figma": bool}, ...]
-        """
-        prd_cards = []
-        figma_cards = []
-
-        for card in missing_cards:
-            card_id = card["card_id"]
-            title = card["title"]
-            card_url = f"https://linear.app/buzzvil/issue/{card_id}"
-            card_link = f"<{card_url}|{card_id}: {_slack_escape(title)}>"
-            if card["missing_prd"]:
-                prd_cards.append(card_link)
-            if card["missing_figma"]:
-                figma_cards.append(card_link)
-
-        guide = "변경 알림을 받으려면 QA카드 Attachments에 링크를 추가해주세요."
-        if prd_cards:
-            guide += "\n_PRD가 원래 없는 경우, Description 특이사항에 `PRD 없음`을 기재하면 이 알림이 발송되지 않습니다._"
-
-        lines = []
-        if prd_cards:
-            lines.append("\u2022 *PRD 링크*")
-            for cl in prd_cards:
-                lines.append(f"    \u25E6 {cl}")
-        if figma_cards:
-            lines.append("\u2022 *Figma 디자인 링크*")
-            for cl in figma_cards:
-                lines.append(f"    \u25E6 {cl}")
-
-        text = f":bell: *TC 작성 기간 링크 안내*\n{guide}\n\n" + "\n".join(lines)
-        blocks = [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": text},
-            },
-        ]
-
-        try:
-            self.client.chat_postMessage(
-                channel=slack_id,
-                blocks=blocks,
-                text=f"PRD/Figma 링크 안내: {len(missing_cards)}건",
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-            print(f"  \u2713 링크 안내 DM 전송 완료: {slack_id} ({len(missing_cards)}건)")
-        except SlackApiError as e:
-            print(f"  \u2717 링크 안내 DM 전송 실패: {e.response['error']}")
 
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 

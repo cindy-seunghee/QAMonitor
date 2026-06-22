@@ -104,10 +104,6 @@ def analyze(issues: list[dict], config: dict) -> dict:
 
     platform = _platform_breakdown(issues)
     critical = _critical_issues(open_bugs)
-    recommendations = _generate_recommendations(
-        open_bugs, critical, progress, platform, release_date_str
-    )
-
     return {
         "generated_at": datetime.now(timezone(timedelta(hours=9))).isoformat(),
         "project_name": "QA Project",  # qa_discoverer에서 QA카드 title로 덮어씀
@@ -127,7 +123,6 @@ def analyze(issues: list[dict], config: dict) -> dict:
         "exit_status": exit_status,
         "platform_breakdown": platform,
         "critical_issues": critical,
-        "recommendations": recommendations,
         "all_issues": issues,
         "qa_cards": qa_cards,
         "bug_issues": bug_issues,
@@ -428,71 +423,6 @@ def _critical_issues(open_bugs: list[dict]) -> list[dict]:
     ))
 
 
-def _generate_recommendations(
-    open_bugs: list[dict],
-    critical: list[dict],
-    progress: dict,
-    platform: dict,
-    release_date_str: str,
-) -> dict:
-    """
-    데이터 기반 권고사항 자동 생성.
-    비크리티컬 이슈 처리 방안 + 배포 권고.
-    """
-    non_critical = [
-        b for b in open_bugs
-        if b.get("priorityLabel") not in ("Urgent", "High")
-    ]
-
-    # 비크리티컬 이슈 분류
-    medium_bugs = [b for b in non_critical if b.get("priorityLabel") == "Medium"]
-    low_bugs = [b for b in non_critical if b.get("priorityLabel") in ("Low", "No priority")]
-
-    non_critical_plan = []
-    if medium_bugs:
-        non_critical_plan.append({
-            "category": "Medium 이슈",
-            "count": len(medium_bugs),
-            "suggestion": "배포 전 수정 권고. 수정 불가 시 배포 후 핫픽스로 처리 검토.",
-        })
-    if low_bugs:
-        non_critical_plan.append({
-            "category": "Low / No priority 이슈",
-            "count": len(low_bugs),
-            "suggestion": "배포 후 다음 스프린트에서 처리. 사용자 영향이 미미한 항목.",
-        })
-
-    # 배포 권고사항
-    advice = []
-    urgent_count = len([b for b in critical if b.get("priorityLabel") == "Urgent"])
-    high_count = len([b for b in critical if b.get("priorityLabel") == "High"])
-
-    if urgent_count > 0:
-        advice.append(f"Urgent 이슈 {urgent_count}건이 미해결입니다. 배포 전 반드시 해결이 필요합니다.")
-    if high_count > 0:
-        advice.append(f"High 이슈 {high_count}건이 미해결입니다. 영향도 검토 후 배포 여부를 결정하세요.")
-
-    pct = progress.get("pct", 0)
-    if pct == "?":
-        advice.append("테스트 진행률을 확인할 수 없습니다. 테스트케이스 시트 접근 권한을 확인하세요.")
-    elif pct < 100:
-        advice.append(f"테스트 진행률이 {pct}%입니다. 미완료 테스트 케이스를 확인하세요.")
-
-    # 플랫폼 불균형 체크
-    ios_high = platform.get("iOS", {}).get("high", 0)
-    aos_high = platform.get("Android", {}).get("high", 0)
-    if ios_high > 0 and ios_high >= aos_high * 2:
-        advice.append(f"iOS에 High 이슈가 집중되어 있습니다 (iOS {ios_high}건 vs Android {aos_high}건). iOS 테스트 강화를 권고합니다.")
-    elif aos_high > 0 and aos_high >= ios_high * 2:
-        advice.append(f"Android에 High 이슈가 집중되어 있습니다 (Android {aos_high}건 vs iOS {ios_high}건). Android 테스트 강화를 권고합니다.")
-
-    if not advice:
-        advice.append("현재 특별한 리스크 없이 배포 가능한 상태입니다.")
-
-    return {
-        "non_critical_plan": non_critical_plan,
-        "advice": advice,
-    }
 
 
 def _calc_dday(release_date_str: str) -> str | None:
