@@ -376,7 +376,49 @@ def _compare_node_lists(old_nodes: list[dict], new_nodes: list[dict]) -> list[di
                 for j in range(j1, j2):
                     changes.append({"type": "added", "path": path, "old": "", "new": new_texts[j]})
 
+    # 후처리: path 이동으로 인한 거짓 삭제+추가 제거
+    changes = _reconcile_path_moves(changes)
+
     return changes
+
+
+def _get_section_root(path: str) -> str:
+    """path에서 상위 2 depth를 추출. 예: 'A > B > C > D' → 'A > B'"""
+    parts = [p.strip() for p in path.split(">")]
+    return " > ".join(parts[:2]) if len(parts) >= 2 else path
+
+
+def _reconcile_path_moves(changes: list[dict]) -> list[dict]:
+    """같은 섹션 내에서 텍스트가 동일한 removed+added 쌍을 제거한다.
+    리스트 항목에 하위 항목이 추가되면 path depth가 바뀌어
+    동일 텍스트가 삭제+추가로 잡히는 문제를 해결한다.
+    """
+    from difflib import SequenceMatcher
+
+    removed = [(i, c) for i, c in enumerate(changes) if c["type"] == "removed"]
+    added = [(i, c) for i, c in enumerate(changes) if c["type"] == "added"]
+
+    remove_indices = set()
+
+    for ri, rc in removed:
+        if ri in remove_indices:
+            continue
+        for ai, ac in added:
+            if ai in remove_indices:
+                continue
+            # 텍스트 동일 + 같은 상위 섹션 → 양쪽 제거 (path 이동일 뿐)
+            if rc["old"] == ac["new"] and _get_section_root(rc["path"]) == _get_section_root(ac["path"]):
+                remove_indices.add(ri)
+                remove_indices.add(ai)
+                break
+            # 텍스트 유사도 0.8 이상 + 같은 상위 섹션 → modified로 전환
+            ratio = SequenceMatcher(None, rc["old"], ac["new"]).ratio()
+            if ratio >= 0.8 and _get_section_root(rc["path"]) == _get_section_root(ac["path"]):
+                changes[ri] = {"type": "modified", "path": ac["path"], "old": rc["old"], "new": ac["new"]}
+                remove_indices.add(ai)
+                break
+
+    return [c for i, c in enumerate(changes) if i not in remove_indices]
 
 
 MAX_SUMMARY_ITEMS = 5
@@ -1255,45 +1297,6 @@ def should_watch(test_phases: dict) -> bool:
 
 _PRD_KEYWORDS = ["prd"]
 
-
-def _has_no_prd_note(qa_card: dict) -> bool:
-    """Description 특이사항에 'PRD 없음' 문구가 있는지 확인."""
-    description = qa_card.get("description") or ""
-    for line in description.splitlines():
-        stripped = line.strip().lstrip("*").strip()
-        if "prd 없음" in stripped.lower():
-            return True
-    return False
-
-
-def check_missing_links(qa_card: dict) -> dict:
-    """QA카드에 PRD 링크와 Figma 링크가 있는지 확인.
-
-    PRD 판단 기준:
-      1) Attachments에 title이 "PRD"(대소문자 무관)인 항목이 있으면 → PRD 있음
-      2) Description 특이사항에 'PRD 없음' 문구가 있으면 → 의도적 미첨부 (알림 안 함)
-      3) 둘 다 없으면 → PRD 누락 (알림)
-
-    Returns: {"missing_prd": bool, "missing_figma": bool}
-    """
-    attachments = qa_card.get("attachments", {}).get("nodes", [])
-
-    # PRD 체크: Attachments에 title "PRD" 포함
-    has_prd = any(
-        any(kw in (att.get("title") or "").lower() for kw in _PRD_KEYWORDS)
-        for att in attachments
-    )
-
-    # Description에 'PRD 없음' 명시된 경우 → 알림 불필요
-    no_prd_noted = _has_no_prd_note(qa_card)
-
-    # Figma 체크
-    has_figma = bool(parse_figma_urls(qa_card))
-
-    return {
-        "missing_prd": not has_prd and not no_prd_noted,
-        "missing_figma": not has_figma,
-    }
 
 
 def watch_card_changes(qa_card: dict, config: dict) -> dict:
