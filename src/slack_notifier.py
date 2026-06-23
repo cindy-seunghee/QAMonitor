@@ -504,6 +504,42 @@ class SlackNotifier:
         bugs = data.get("open_bug_count", 0)
         return f"QA 일일 리포트 | 진행률 {pct_str} | 미해결 버그 {bugs}건"
 
+    # ── 테스트 기간 미기재 안내 DM ──────────────────────────────────────────
+
+    def send_missing_dates_dm(
+        self, slack_id: str, cards_info: list[dict],
+    ) -> None:
+        """테스트 기간 미기재 QA카드 안내 DM.
+        cards_info: [{"identifier": "SUP-2300", "title": "...", "url": "...", "missing": ["기능테스트", "리그레션테스트"]}, ...]
+        """
+        lines = [":bell: *테스트 기간 기재 안내*\n"]
+        lines.append("QA카드 Description에 테스트 기간이 누락되어 있습니다.\n")
+        for card in cards_info:
+            missing_str = ", ".join(card["missing"])
+            lines.append(f"• <{card['url']}|{card['identifier']} {card['title']}> — _{missing_str}_")
+        lines.append("")
+        lines.append("_`기능테스트: M/DD ~ M/DD` , `리그레션테스트: M/DD ~ M/DD` 형식으로 기재해주세요._")
+        lines.append("_리그레션테스트가 없는 경우 `리그레션테스트: 없음` 으로 기재해주세요._")
+
+        text = "\n".join(lines)
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            },
+        ]
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"테스트 기간 기재 안내: {len(cards_info)}건",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  ✓ 테스트 기간 안내 DM 전송 완료: {slack_id}")
+        except SlackApiError as e:
+            print(f"  ✗ 테스트 기간 안내 DM 전송 실패: {e.response['error']}")
+
     # ── 에러 DM 알림 ─────────────────────────────────────────────────────
 
     def send_error_dm(self, slack_id: str, errors: list[dict]) -> None:
