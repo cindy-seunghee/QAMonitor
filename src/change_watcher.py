@@ -24,6 +24,8 @@ _FIGMA_URL_RE = re.compile(
 
 _LINEAR_ISSUE_RE = re.compile(r"linear\.app/[^/]+/issue/([A-Z]+-\d+)")
 _CONFLUENCE_PAGE_RE = re.compile(r"atlassian\.net/wiki/.*?/(?:pages|history)/(\d+)")
+# description 본문에서 전체 URL을 추출하기 위한 패턴
+_CONFLUENCE_URL_RE = re.compile(r"https?://[^\s()<>\]]+atlassian\.net/wiki/[^\s()<>\]]+")
 
 
 def _find_prd_source(qa_card: dict) -> dict | None:
@@ -1297,6 +1299,87 @@ def should_watch(test_phases: dict) -> bool:
 
 _PRD_KEYWORDS = ["prd"]
 
+
+def _has_no_prd_note(qa_card: dict) -> bool:
+    """Description 특이사항에 'PRD 없음' 문구가 있는지 확인."""
+    description = qa_card.get("description") or ""
+    for line in description.splitlines():
+        stripped = line.strip().lstrip("*").strip()
+        if "prd 없음" in stripped.lower():
+            return True
+    return False
+
+
+def _extract_requirement_link(card: dict) -> dict | None:
+    """카드의 Attachments/Description에서 요구사항(PRD) 스펙 링크를 찾는다.
+
+    요구사항으로 인정하는 기준:
+      - Attachments에 Confluence 페이지 링크가 있으면 (제목 무관 — 보통 자동 첨부됨)
+      - Attachments에 title이 "PRD"인 Linear 이슈 링크가 있으면
+      - Description 본문에 Confluence 페이지 링크가 있으면
+
+    Returns: {"url": str, "title": str} | None
+    """
+    if not card:
+        return None
+
+    attachments = (card.get("attachments") or {}).get("nodes", [])
+    for att in attachments:
+        url = att.get("url") or ""
+        title = (att.get("title") or "").strip()
+        # Confluence 페이지 → 제목과 무관하게 요구사항으로 인정
+        if _CONFLUENCE_PAGE_RE.search(url):
+            return {"url": url, "title": title or "PRD"}
+        # title에 "prd"가 명시된 Linear 이슈 링크
+        if any(kw in title.lower() for kw in _PRD_KEYWORDS) and _LINEAR_ISSUE_RE.search(url):
+            return {"url": url, "title": title or "PRD"}
+
+    # Description 본문 내 Confluence 링크
+    description = card.get("description") or ""
+    m = _CONFLUENCE_URL_RE.search(description)
+    if m:
+        return {"url": m.group(0), "title": "PRD"}
+
+    return None
+
+
+def check_missing_links(qa_card: dict) -> dict:
+    """QA카드에서 요구사항(PRD) 스펙 링크를 단계적으로 탐색한다.
+
+    탐색 순서:
+      1) QA카드 자체 Attachments/Description에 요구사항 링크가 있으면 → 정상
+      2) Description 특이사항에 'PRD 없음'이 명시되어 있으면 → 의도적 미첨부 (정상)
+      3) 상위(parent) 카드의 Attachments/Description에 요구사항 링크가 있으면
+         → QA카드에 자동 첨부 대상 (status="attach_from_parent")
+      4) 어디에서도 찾지 못하면 → 누락 (status="missing")
+
+    Returns:
+      {"status": "ok"} |
+      {"status": "attach_from_parent", "link": {"url", "title"},
+       "parent_identifier": str} |
+      {"status": "missing"}
+    """
+    # 1) QA카드 자체에서 요구사항 링크 확인
+    if _extract_requirement_link(qa_card):
+        return {"status": "ok"}
+
+    # 2) 'PRD 없음' 명시 → 알림 불필요
+    if _has_no_prd_note(qa_card):
+        return {"status": "ok"}
+
+    # 3) 상위 카드에서 요구사항 링크 확인
+    parent = qa_card.get("parent")
+    if parent:
+        parent_link = _extract_requirement_link(parent)
+        if parent_link:
+            return {
+                "status": "attach_from_parent",
+                "link": parent_link,
+                "parent_identifier": parent.get("identifier", ""),
+            }
+
+    # 4) 어디에도 없음 → 누락
+    return {"status": "missing"}
 
 
 def watch_card_changes(qa_card: dict, config: dict) -> dict:

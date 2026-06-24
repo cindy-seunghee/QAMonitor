@@ -240,6 +240,13 @@ class LinearClient:
                     assignee {{ id name displayName }}
                     creator {{ id name displayName }}
                     attachments {{ nodes {{ title url }} }}
+                    parent {{
+                        id
+                        identifier
+                        title
+                        description
+                        attachments {{ nodes {{ title url }} }}
+                    }}
                 }}
             }}
         }}
@@ -254,6 +261,22 @@ class LinearClient:
                 break
             cursor = conn["pageInfo"]["endCursor"]
         return issues
+
+    def create_attachment(self, issue_id: str, url: str, title: str) -> bool:
+        """이슈에 attachment(링크)를 추가한다. 성공 시 True.
+
+        issue_id: 이슈 UUID (identifier 아님)
+        """
+        mutation = """
+        mutation($issueId: String!, $url: String!, $title: String!) {
+            attachmentCreate(input: { issueId: $issueId, url: $url, title: $title }) {
+                success
+                attachment { id }
+            }
+        }
+        """
+        data = self._query(mutation, {"issueId": issue_id, "url": url, "title": title})
+        return bool(data.get("attachmentCreate", {}).get("success"))
 
     def get_issue_by_identifier(self, identifier: str):
         """이슈 식별자(예: SUP-1841)로 이슈 제목 등 기본 정보를 조회"""
