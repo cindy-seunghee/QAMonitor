@@ -1349,9 +1349,10 @@ def check_missing_links(qa_card: dict) -> dict:
     탐색 순서:
       1) QA카드 자체 Attachments/Description에 요구사항 링크가 있으면 → 정상
       2) Description 특이사항에 'PRD 없음'이 명시되어 있으면 → 의도적 미첨부 (정상)
-      3) 상위(parent) 카드의 Attachments/Description에 요구사항 링크가 있으면
-         → QA카드에 자동 첨부 대상 (status="attach_from_parent")
-      4) 어디에서도 찾지 못하면 → 누락 (status="missing")
+      3) 상위(parent) 카드가 있으면 → QA카드에 자동 첨부 대상
+         - 상위 카드 안에 PRD 링크가 있으면 → 그 링크
+         - 없으면 → 상위 카드 자체를 요구사항으로 보고 상위 카드 URL
+      4) 상위 카드도 없으면 → 누락 (status="missing")
 
     Returns:
       {"status": "ok"} |
@@ -1367,18 +1368,26 @@ def check_missing_links(qa_card: dict) -> dict:
     if _has_no_prd_note(qa_card):
         return {"status": "ok"}
 
-    # 3) 상위 카드에서 요구사항 링크 확인
+    # 3) 상위 카드 → 자동 첨부 대상
     parent = qa_card.get("parent")
     if parent:
+        parent_id = parent.get("identifier", "")
+        # 3-a) 상위 카드 안의 PRD 링크 우선
         parent_link = _extract_requirement_link(parent)
+        # 3-b) 없으면 상위 카드 자체를 요구사항(PRD)으로 간주 → 상위 카드 URL
+        if not parent_link and parent_id:
+            parent_link = {
+                "url": f"https://linear.app/buzzvil/issue/{parent_id}",
+                "title": "PRD",
+            }
         if parent_link:
             return {
                 "status": "attach_from_parent",
                 "link": parent_link,
-                "parent_identifier": parent.get("identifier", ""),
+                "parent_identifier": parent_id,
             }
 
-    # 4) 어디에도 없음 → 누락
+    # 4) 상위 카드도 없음 → 누락
     return {"status": "missing"}
 
 
