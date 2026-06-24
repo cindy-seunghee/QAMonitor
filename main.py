@@ -575,14 +575,17 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
         discover_qa_cards, get_active_cards,
         parse_test_phases, resolve_user_map,
     )
-    from src.change_watcher import should_watch, watch_card_changes
+    from src.change_watcher import should_watch, watch_card_changes, check_missing_links
     from src.slack_notifier import SlackNotifier
+    from src.linear_client import LinearClient
     from datetime import datetime, timezone, timedelta
 
     errors: list[dict] = []
     kst = timezone(timedelta(hours=9))
     current_hour = datetime.now(kst).hour
     is_morning = current_hour < 12
+    # 요구사항 링크 누락 안내(나그) DM은 09시, 15시에만 발송
+    send_missing_links = current_hour in (9, 15)
 
     print("─" * 50)
     target = assignee_name or "전체"
@@ -627,6 +630,67 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
         # 매니저 slack_id
         manager_cfg = user_map.get(manager_name, {})
         manager_slack_id = manager_cfg.get("slack_id") if isinstance(manager_cfg, dict) else manager_cfg
+
+        # ── 요구사항(PRD) 링크 누락 탐지 + 상위 카드 PRD 자동 첨부 ──
+        attached_cards = []   # 상위 카드에서 찾아 자동 첨부한 카드 (정보성 DM)
+        missing_cards = []    # 어디에서도 못 찾은 카드 (누락 안내 DM)
+        linear = None
+        for qa_card in watch_cards:
+            card_id = qa_card["identifier"]
+            link_status = check_missing_links(qa_card)
+            status = link_status["status"]
+
+            if status == "attach_from_parent":
+                link = link_status["link"]
+                parent_id = link_status.get("parent_identifier", "")
+                try:
+                    if not linear:
+                        linear = LinearClient()
+                    # 변경 감지기(_find_prd_source)가 인식하도록 title을 "PRD"로 고정
+                    ok = linear.create_attachment(
+                        issue_id=qa_card["id"],
+                        url=link["url"],
+                        title="PRD",
+                    )
+                    if ok:
+                        print(f"      ✓ {card_id}: 상위 카드({parent_id}) PRD 자동 첨부 — {link['url']}")
+                        attached_cards.append({
+                            "card_id": card_id,
+                            "title": qa_card.get("title", ""),
+                            "parent_id": parent_id,
+                            "link": link,
+                        })
+                    else:
+                        print(f"      ✗ {card_id}: PRD 자동 첨부 실패 (API success=false)")
+                        errors.append({"step": f"PRD 자동 첨부 ({card_id})", "detail": "attachmentCreate success=false"})
+                except Exception as e:
+                    print(f"      ✗ {card_id}: PRD 자동 첨부 실패 — {e}")
+                    errors.append({"step": f"PRD 자동 첨부 ({card_id})", "detail": str(e)})
+
+            elif status == "missing":
+                print(f"      → {card_id}: 요구사항 PRD 링크를 어디에서도 찾지 못함")
+                missing_cards.append({
+                    "card_id": card_id,
+                    "title": qa_card.get("title", ""),
+                })
+
+        # 자동 첨부 정보성 DM — 첨부가 실제 발생한 경우에만 (시간 무관, 1회성 이벤트)
+        if attached_cards and manager_slack_id:
+            if not notifier:
+                notifier = SlackNotifier()
+            try:
+                notifier.send_prd_attached_dm(slack_id=manager_slack_id, attached_cards=attached_cards)
+            except Exception as e:
+                print(f"  ✗ PRD 자동 첨부 안내 DM 실패: {e}")
+
+        # 누락 안내 DM — 09/15시에만 발송 (반복 나그 방지)
+        if missing_cards and manager_slack_id and send_missing_links:
+            if not notifier:
+                notifier = SlackNotifier()
+            try:
+                notifier.send_missing_links_dm(slack_id=manager_slack_id, missing_cards=missing_cards)
+            except Exception as e:
+                print(f"  ✗ 요구사항 링크 누락 안내 DM 실패: {e}")
 
         # 변경 감지 — 매니저별 결과 수집 후 통합 발송
         changed_results = []

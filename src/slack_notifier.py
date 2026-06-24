@@ -877,6 +877,75 @@ class SlackNotifier:
                 break
 
 
+    # ── 요구사항(PRD) 링크 누락 안내 / 자동 첨부 안내 ──────────────────────
+
+    def send_missing_links_dm(self, slack_id: str, missing_cards: list[dict]) -> None:
+        """요구사항(PRD) 링크를 어디에서도 찾지 못한 QA카드 안내 DM (복수 카드 통합).
+        missing_cards: [{"card_id": str, "title": str}, ...]
+        """
+        guide = (
+            "PRD 변경 알림을 받으려면 QA카드 Attachments에 요구사항(PRD) 링크를 추가해주세요.\n"
+            "_상위 카드에 PRD가 있으면 자동으로 첨부됩니다. PRD가 원래 없는 경우, "
+            "Description 특이사항에 `PRD 없음`을 기재하면 이 알림이 발송되지 않습니다._"
+        )
+
+        lines = []
+        for card in missing_cards:
+            card_id = card["card_id"]
+            card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+            lines.append(f"• <{card_url}|{card_id}: {_slack_escape(card['title'])}>")
+
+        text = f":bell: *요구사항 링크 누락 안내*\n{guide}\n\n" + "\n".join(lines)
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"요구사항 링크 누락 안내: {len(missing_cards)}건",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  ✓ 요구사항 링크 누락 DM 전송 완료: {slack_id} ({len(missing_cards)}건)")
+        except SlackApiError as e:
+            print(f"  ✗ 요구사항 링크 누락 DM 전송 실패: {e.response['error']}")
+
+    def send_prd_attached_dm(self, slack_id: str, attached_cards: list[dict]) -> None:
+        """상위 카드에서 찾은 PRD를 QA카드에 자동 첨부했음을 안내하는 정보성 DM.
+        attached_cards: [{"card_id", "title", "parent_id", "link": {"url", "title"}}, ...]
+        """
+        guide = (
+            "상위 카드에서 PRD를 찾아 QA카드 Attachments에 자동 첨부했습니다.\n"
+            "_잘못된 링크가 첨부되었다면 직접 수정/삭제해주세요._"
+        )
+
+        lines = []
+        for card in attached_cards:
+            card_id = card["card_id"]
+            card_url = f"https://linear.app/buzzvil/issue/{card_id}"
+            link = card["link"]
+            parent_id = card.get("parent_id", "")
+            parent_note = f" (상위: {parent_id})" if parent_id else ""
+            lines.append(
+                f"• <{card_url}|{card_id}: {_slack_escape(card['title'])}>{parent_note}\n"
+                f"    ◦ <{link['url']}|{_slack_escape(link.get('title') or 'PRD')}>"
+            )
+
+        text = f":paperclip: *PRD 자동 첨부 안내*\n{guide}\n\n" + "\n".join(lines)
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
+        try:
+            self.client.chat_postMessage(
+                channel=slack_id,
+                blocks=blocks,
+                text=f"PRD 자동 첨부 안내: {len(attached_cards)}건",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            print(f"  ✓ PRD 자동 첨부 안내 DM 전송 완료: {slack_id} ({len(attached_cards)}건)")
+        except SlackApiError as e:
+            print(f"  ✗ PRD 자동 첨부 안내 DM 전송 실패: {e.response['error']}")
+
     # ── 연결 테스트 ────────────────────────────────────────────────────────
 
     def test_connection(self) -> bool:
