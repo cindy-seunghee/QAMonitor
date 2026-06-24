@@ -569,7 +569,7 @@ def run_single_card(config: dict, card_id: str) -> None:
     print(f"{card_id} 완료!")
 
 
-def watch_changes(config: dict, assignee_name: str = "") -> None:
+def watch_changes(config: dict, assignee_name: str = "", force_links: bool = False) -> None:
     """TC 작성 기간 중 PRD/Figma 변경 감지 + Slack 알림 발송."""
     from src.qa_discoverer import (
         discover_qa_cards, get_active_cards,
@@ -584,8 +584,10 @@ def watch_changes(config: dict, assignee_name: str = "") -> None:
     kst = timezone(timedelta(hours=9))
     current_hour = datetime.now(kst).hour
     is_morning = current_hour < 12
-    # 요구사항 링크 누락 안내(나그) DM은 09시, 15시에만 발송
-    send_missing_links = current_hour in (9, 15)
+    # 요구사항 링크 누락 안내(나그) DM은 09시, 15시에만 발송 (--force-links 시 무시)
+    send_missing_links = force_links or current_hour in (9, 15)
+    if force_links:
+        print("  [force-links] 시간 게이트 무시 — 누락 안내 DM 강제 발송 모드")
 
     print("─" * 50)
     target = assignee_name or "전체"
@@ -780,6 +782,8 @@ def main():
     group.add_argument("--test-slack", action="store_true", help="Slack 연결 테스트")
     group.add_argument("--test-linear", action="store_true", help="Linear 연결 테스트")
     parser.add_argument("--config", default="config.yaml", help="설정 파일 경로")
+    parser.add_argument("--force-links", action="store_true",
+                        help="요구사항 링크 누락 안내 DM의 시간 게이트(09·15시)를 무시 (수동 테스트용)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -817,7 +821,7 @@ def main():
             if _is_holiday():
                 print("오늘은 주말 또는 공휴일입니다. 실행을 건너뜁니다.")
                 return
-            watch_changes(config, args.watch_changes)
+            watch_changes(config, args.watch_changes, force_links=args.force_links)
 
         elif args.run_card:
             run_single_card(config, args.run_card)  # 수동 테스트용이므로 공휴일 체크 안 함

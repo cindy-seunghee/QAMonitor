@@ -9,6 +9,16 @@ on:
     - cron: '0 8 * * 1-5'   # 평일 17:00 KST
 
   workflow_dispatch:
+    inputs:
+      assignee:
+        description: '특정 QAM만 대상 (비우면 전체). 본인 카드만 테스트하려면 이름 입력 (예: Cindy)'
+        required: false
+        default: ''
+      force_links:
+        description: '요구사항 링크 누락 DM 시간 게이트(09·15시) 무시'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   watch-changes:
@@ -48,4 +58,11 @@ jobs:
           FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
           CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
           CONFLUENCE_TOKEN: ${{ secrets.CONFLUENCE_TOKEN }}
-        run: python main.py --watch-changes
+          ASSIGNEE: ${{ github.event.inputs.assignee }}
+          FORCE_LINKS: ${{ github.event.inputs.force_links }}
+        run: |
+          ARGS="--watch-changes"
+          if [ -n "$ASSIGNEE" ]; then ARGS="$ARGS $ASSIGNEE"; fi
+          if [ "$FORCE_LINKS" = "true" ]; then ARGS="$ARGS --force-links"; fi
+          echo "실행: python main.py $ARGS"
+          python main.py $ARGS
