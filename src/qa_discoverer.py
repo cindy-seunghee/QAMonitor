@@ -585,10 +585,11 @@ def parse_test_phases(qa_card: dict) -> dict:
     today = datetime.now(kst).strftime("%Y-%m-%d")
     current_phase = "테스트 전"
 
-    if integration and integration["start"] <= today <= integration["end"]:
-        current_phase = "기능테스트"
-    elif regression and regression["start"] <= today <= regression["end"]:
+    # 경계일(기능 end == 리그 start)에 리그레션을 우선 매칭한다.
+    if regression and regression["start"] <= today <= regression["end"]:
         current_phase = "리그레션테스트"
+    elif integration and integration["start"] <= today <= integration["end"]:
+        current_phase = "기능테스트"
     elif regression and today > regression["end"]:
         current_phase = "테스트 완료"
     elif integration and today > integration["end"]:
